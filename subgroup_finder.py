@@ -281,22 +281,12 @@ attr_config = {
     'GPA': 'numeric',
     'origin' : 'categorical'
 }
-top = emm_beam_search(
-    df,
-    X_cols=["total_course_activities", "active_minutes", 'nr_distinct_files_viewed', 'nr_practice_exams_viewed'],   # regressors for the model
-    y_col="CalculatedNumericResult",                 # target
-    attr_config=attr_config,   # how to define candidate subgroups
-    beam_width=10,
-    max_depth=3,
-    min_support=100,
-    top_S=10
-)
 
-for desc, D, mask, tbl_group, tbl_global in top:
-    n = int(mask.sum())
-    print(f"{desc} -> Cook D={D:.4f}  (n={n})")
-    print("  Subgroup OLS (β, se, t, p, sig):")
-    print(tbl_group.to_string(float_format=lambda x: f"{x:.6g}"))
-    print("  Global OLS (β, se, t, p, sig):")
-    print(tbl_global.to_string(float_format=lambda x: f"{x:.6g}"))
-    print("-" * 60)
+# for desc, D, mask, tbl_group, tbl_global in top:
+#     n = int(mask.sum())
+#     print(f"{desc} -> Cook D={D:.4f}  (n={n})")
+#     print("  Subgroup OLS (β, se, t, p, sig):")
+#     print(tbl_group.to_string(float_format=lambda x: f"{x:.6g}"))
+#     print("  Global OLS (β, se, t, p, sig):")
+#     print(tbl_global.to_string(float_format=lambda x: f"{x:.6g}"))
+#     print("-" * 60)
