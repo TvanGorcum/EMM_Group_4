@@ -2,41 +2,21 @@ import numpy as np
 import pandas as pd
 from itertools import product, combinations
 
+def label_coefs(beta, X_cols, add_intercept=True):
+    names = (["Intercept"] if add_intercept else []) + list(X_cols)
+    return pd.Series(beta, index=names)
+
+def label_coef_table(beta, se, t, p, X_cols, add_intercept=True):
+    names = (["Intercept"] if add_intercept else []) + list(X_cols)
+    return pd.DataFrame(
+        {"coef": beta, "se": se, "t": t, "p": p},
+        index=names
+    )
+
 # --- 0) Your Cook-based quality measure from earlier ---
 def cooks_distance_emm(X, y, mask, add_intercept=True, use_pinv=True):
     """
-    Compute the Cook-based quality measure (D_I) for Exceptional Model Mining.
-
-    Implements:
-        D_I = ((β_G - β)^T (X^T X) (β_G - β)) / (p * s^2)
-
-    where:
-        - β is the OLS estimate on ALL rows,
-        - β_G is the OLS estimate using ONLY the subgroup rows (mask == True),
-        - s^2 is the residual MSE from the global fit,
-        - p is the number of regression coefficients (including intercept).
-
-    Parameters
-    ----------
-    X : array-like, shape (N, d)
-        Predictor matrix (no intercept column needed if add_intercept=True)
-    y : array-like, shape (N,)
-        Target vector
-    mask : boolean array of shape (N,)
-        True for rows in the subgroup to KEEP (the complement is "deleted")
-    add_intercept : bool, default=True
-        If True, adds an intercept column to X.
-    use_pinv : bool, default=True
-        If True, uses pseudoinverse (robust for singular or ill-conditioned X^TX).
-
-    Returns
-    -------
-    dict with:
-        - D : Cook's distance (float)
-        - beta_global : global model coefficients
-        - beta_group : subgroup model coefficients
-        - s2 : global residual variance estimate
-        - p : number of model parameters (including intercept)
+    Compute Cook's D_I and return stats (β, se, t, p) for global and subgroup models.
     """
     X = np.asarray(X)
     y = np.asarray(y).reshape(-1)
@@ -45,7 +25,7 @@ def cooks_distance_emm(X, y, mask, add_intercept=True, use_pinv=True):
     if X.shape[0] != y.shape[0] or mask.shape[0] != y.shape[0]:
         raise ValueError("X, y, and mask must have the same number of rows.")
 
-    # Add intercept if requested
+    # Design matrices
     if add_intercept:
         X_design = np.column_stack([np.ones(X.shape[0]), X])
     else:
@@ -53,39 +33,37 @@ def cooks_distance_emm(X, y, mask, add_intercept=True, use_pinv=True):
 
     N, p = X_design.shape
 
-    # --- Fit global OLS model ---
-    XTX = X_design.T @ X_design
-    XTy = X_design.T @ y
+    # Global OLS with stats
+    g = _ols_with_stats(X_design, y, use_pinv=use_pinv)
 
-    solve = np.linalg.pinv if use_pinv else np.linalg.inv
-    beta_global = solve(XTX) @ XTy
-
-    y_hat_global = X_design @ beta_global
-    resid_global = y - y_hat_global
-    df_resid = N - p
-    if df_resid <= 0:
-        raise ValueError("Not enough degrees of freedom.")
-    s2 = float(resid_global.T @ resid_global) / df_resid
-
-    # --- Fit subgroup OLS model (keep only True mask) ---
+    # Subgroup OLS with stats
     if mask.sum() <= p:
         raise ValueError(f"Subgroup too small to fit: needs > {p} rows, has {mask.sum()}.")
-
     XG = X_design[mask]
     yG = y[mask]
-    XGTXG = XG.T @ XG
-    XGTyG = XG.T @ yG
-    beta_group = solve(XGTXG) @ XGTyG
+    s = _ols_with_stats(XG, yG, use_pinv=use_pinv)
 
-    # --- Compute Cook’s Distance D_I ---
-    delta = beta_group - beta_global
-    D = float(delta.T @ XTX @ delta) / (p * s2)
+    # Cook's D_I: ((β_G - β)^T (X^T X) (β_G - β)) / (p * s_global^2)
+    delta = s["beta"] - g["beta"]
+    D = float(delta.T @ g["XTX"] @ delta) / (p * g["s2"])
 
     return {
         "D": D,
-        "beta_global": beta_global,
-        "beta_group": beta_group,
-        "s2": s2,
+        # Global stats
+        "beta_global": g["beta"],
+        "se_global": g["se"],
+        "t_global": g["t"],
+        "p_global": g["p"],
+        "s2_global": g["s2"],
+        "df_global": g["df_resid"],
+        # Subgroup stats
+        "beta_group": s["beta"],
+        "se_group": s["se"],
+        "t_group": s["t"],
+        "p_group": s["p"],
+        "s2_group": s["s2"],
+        "df_group": s["df_resid"],
+        # model size
         "p": p,
     }
 
@@ -98,6 +76,63 @@ def bin_numeric_series(s, n_bins=12):
     # here we’ll return interval conditions as strings for readability
     levels = cats.cat.categories
     return [("num_interval", s.name, iv) for iv in levels]  # iv is a pd.Interval
+
+def _two_sided_p_from_t(tvals, df):
+    """
+    Return two-sided p-values for t statistics.
+    Uses scipy.stats.t if available; otherwise normal approximation.
+    """
+    try:
+        from scipy.stats import t as student_t
+        # survival function *2 for two-sided
+        return 2.0 * student_t.sf(np.abs(tvals), df)
+    except Exception:
+        # Normal approximation as fallback
+        from math import erf, sqrt
+        # p = 2 * (1 - Phi(|t|)) ; Phi via erf
+        Phi = lambda z: 0.5 * (1.0 + erf(z / np.sqrt(2.0)))
+        return 2.0 * (1.0 - np.vectorize(Phi)(np.abs(tvals)))
+
+def _ols_with_stats(X_design, y, use_pinv=True):
+    """
+    OLS with β, s^2, df, standard errors, t-stats, and p-values.
+    X_design MUST already include intercept if you want it.
+    """
+    N, p = X_design.shape
+    XTX = X_design.T @ X_design
+    XTy = X_design.T @ y
+
+    inv = np.linalg.pinv if use_pinv else np.linalg.inv
+    XTX_inv = inv(XTX)
+    beta = XTX_inv @ XTy
+
+    y_hat = X_design @ beta
+    resid = y - y_hat
+
+    df_resid = N - p
+    if df_resid <= 0:
+        raise ValueError("Not enough degrees of freedom.")
+    s2 = float(resid.T @ resid) / df_resid
+
+    # Var(β) = s^2 * (X'X)^-1 ; se = sqrt(diag(Var))
+    var_beta = s2 * XTX_inv
+    se = np.sqrt(np.clip(np.diag(var_beta), 0.0, np.inf))
+
+    # Guard against zero SE
+    with np.errstate(divide='ignore', invalid='ignore'):
+        tvals = np.where(se > 0, beta / se, np.nan)
+
+    pvals = _two_sided_p_from_t(tvals, df_resid)
+    return {
+        "beta": beta,
+        "s2": s2,
+        "df_resid": df_resid,
+        "se": se,
+        "t": tvals,
+        "p": pvals,
+        "XTX": XTX,           # return for Cook's D (global)
+    }
+
 
 def atomic_conditions(df, attr_config):
     """
@@ -142,16 +177,10 @@ def emm_beam_search(
     beam_width=10, max_depth=2, min_support=100,
     top_S=10
 ):
-    """
-    Returns a list of (description, D, mask) for the top_S subgroups found.
-    """
     X = df[X_cols].to_numpy()
     y = df[y_col].to_numpy()
-
-    # Precompute atoms (depth-1 candidates)
     atoms = atomic_conditions(df, attr_config)
 
-    # Score a set of candidates (each is a tuple of atoms)
     def score_candidates(cands):
         results = []
         for atoms_subset in cands:
@@ -159,45 +188,48 @@ def emm_beam_search(
             if mask.sum() < min_support:
                 continue
             try:
-                D = cooks_distance_emm(X, y, mask)["D"]
+                res = cooks_distance_emm(X, y, mask)
+                D = res["D"]
+                tbl_group = label_coef_table(
+                    res["beta_group"], res["se_group"], res["t_group"], res["p_group"],
+                    X_cols, add_intercept=True
+                )
+                tbl_global = label_coef_table(
+                    res["beta_global"], res["se_global"], res["t_global"], res["p_global"],
+                    X_cols, add_intercept=True
+                )
             except Exception:
                 continue
+
             desc = " ∧ ".join(lbl for _, lbl in atoms_subset)
-            results.append((desc, D, mask.copy(), atoms_subset))
-        # sort by Cook score desc
+            results.append((desc, D, mask.copy(), atoms_subset, tbl_group, tbl_global))
         results.sort(key=lambda t: t[1], reverse=True)
         return results
 
-    # depth-1
     level1_cands = [ (a,) for a in atoms ]
     level1_scored = score_candidates(level1_cands)
-    top_overall = level1_scored[:top_S]  # running top list
-    frontier = level1_scored[:beam_width]  # beam for next expansions
+    top_overall = level1_scored[:top_S]
+    frontier = level1_scored[:beam_width]
 
-    # depths ≥2
     for depth in range(2, max_depth + 1):
         next_cands = set()
-        # refine: add one new atom not already present
-        for _, _, _, atom_tuple in frontier:
+        for _, _, _, atom_tuple, _, _ in frontier:
             used = set(atom_tuple)
             for a in atoms:
-                if a in used:
-                    continue
-                new_tuple = tuple(sorted(atom_tuple + (a,), key=lambda z: z[1]))  # sort by label for dedup
+                if a in used: continue
+                new_tuple = tuple(sorted(atom_tuple + (a,), key=lambda z: z[1]))
                 next_cands.add(new_tuple)
         next_cands = list(next_cands)
-
         if not next_cands:
             break
 
         level_scored = score_candidates(next_cands)
-        # update global top
         top_overall = sorted(top_overall + level_scored, key=lambda t: t[1], reverse=True)[:top_S]
-        # new beam
         frontier = level_scored[:beam_width]
 
-    # return compact results
-    return [(desc, D, mask) for (desc, D, mask, _) in top_overall]
+    # return also the tables
+    return [(desc, D, mask, tbl_group, tbl_global) for (desc, D, mask, _, tbl_group, tbl_global) in top_overall]
+
 
 df = pd.read_csv('../data_final.csv')
 numeric_cols = ["total_course_activities", "active_minutes", 'nr_distinct_files_viewed', 'nr_practice_exams_viewed']
@@ -229,5 +261,11 @@ top = emm_beam_search(
     top_S=10
 )
 
-for desc, D, mask in top:
-    print(f"{desc}  -> Cook quality D={D:.3f}  (n={mask.sum()})")
+for desc, D, mask, tbl_group, tbl_global in top:
+    n = int(mask.sum())
+    print(f"{desc} -> Cook D={D:.4f}  (n={n})")
+    print("  Subgroup OLS (β, se, t, p):")
+    print(tbl_group.to_string(float_format=lambda x: f"{x:.6g}"))
+    print("  Global OLS (β, se, t, p):")
+    print(tbl_global.to_string(float_format=lambda x: f"{x:.6g}"))
+    print("-" * 60)
