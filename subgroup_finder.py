@@ -190,14 +190,45 @@ def emm_beam_search(
             try:
                 res = cooks_distance_emm(X, y, mask)
                 D = res["D"]
-                tbl_group = label_coef_table(
-                    res["beta_group"], res["se_group"], res["t_group"], res["p_group"],
-                    X_cols, add_intercept=True
-                )
-                tbl_global = label_coef_table(
-                    res["beta_global"], res["se_global"], res["t_global"], res["p_global"],
-                    X_cols, add_intercept=True
-                )
+
+                # build names (we used add_intercept=True in cooks_distance_emm)
+                names = ["Intercept"] + list(X_cols)
+
+                # subgroup coef table
+                tbl_group = pd.DataFrame({
+                    "coef": res["beta_group"],
+                    "se":   res["se_group"],
+                    "t":    res["t_group"],
+                    "p":    res["p_group"],
+                }, index=names)
+
+                # add R-style significance stars (***, **, *, ., ' ')
+                pvals = tbl_group["p"].values
+                sig = np.full(pvals.shape, " ", dtype=object)
+                sig[pvals <= 0.1]   = "."
+                sig[pvals <= 0.05]  = "*"
+                sig[pvals <= 0.01]  = "**"
+                sig[pvals <= 0.001] = "***"
+                tbl_group["sig"] = sig
+                tbl_group = tbl_group[["coef","se","t","p","sig"]]
+
+                # global coef table
+                tbl_global = pd.DataFrame({
+                    "coef": res["beta_global"],
+                    "se":   res["se_global"],
+                    "t":    res["t_global"],
+                    "p":    res["p_global"],
+                }, index=names)
+
+                pvals_g = tbl_global["p"].values
+                sig_g = np.full(pvals_g.shape, " ", dtype=object)
+                sig_g[pvals_g <= 0.1]   = "."
+                sig_g[pvals_g <= 0.05]  = "*"
+                sig_g[pvals_g <= 0.01]  = "**"
+                sig_g[pvals_g <= 0.001] = "***"
+                tbl_global["sig"] = sig_g
+                tbl_global = tbl_global[["coef","se","t","p","sig"]]
+
             except Exception:
                 continue
 
@@ -216,7 +247,8 @@ def emm_beam_search(
         for _, _, _, atom_tuple, _, _ in frontier:
             used = set(atom_tuple)
             for a in atoms:
-                if a in used: continue
+                if a in used:
+                    continue
                 new_tuple = tuple(sorted(atom_tuple + (a,), key=lambda z: z[1]))
                 next_cands.add(new_tuple)
         next_cands = list(next_cands)
@@ -227,7 +259,6 @@ def emm_beam_search(
         top_overall = sorted(top_overall + level_scored, key=lambda t: t[1], reverse=True)[:top_S]
         frontier = level_scored[:beam_width]
 
-    # return also the tables
     return [(desc, D, mask, tbl_group, tbl_global) for (desc, D, mask, _, tbl_group, tbl_global) in top_overall]
 
 
@@ -264,8 +295,8 @@ top = emm_beam_search(
 for desc, D, mask, tbl_group, tbl_global in top:
     n = int(mask.sum())
     print(f"{desc} -> Cook D={D:.4f}  (n={n})")
-    print("  Subgroup OLS (β, se, t, p):")
+    print("  Subgroup OLS (β, se, t, p, sig):")
     print(tbl_group.to_string(float_format=lambda x: f"{x:.6g}"))
-    print("  Global OLS (β, se, t, p):")
+    print("  Global OLS (β, se, t, p, sig):")
     print(tbl_global.to_string(float_format=lambda x: f"{x:.6g}"))
     print("-" * 60)
