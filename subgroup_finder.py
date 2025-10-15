@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from itertools import product, combinations
 
+#Help functions to label coefficients and coefficient tables
 def label_coefs(beta, X_cols, add_intercept=True):
     names = (["Intercept"] if add_intercept else []) + list(X_cols)
     return pd.Series(beta, index=names)
@@ -13,10 +14,10 @@ def label_coef_table(beta, se, t, p, X_cols, add_intercept=True):
         index=names
     )
 
-# --- 0) Your Cook-based quality measure from earlier ---
+# 
 def cooks_distance_emm(X, y, mask, add_intercept=True, use_pinv=True):
     """
-    Compute Cook's D_I and return stats (β, se, t, p) for global and subgroup models.
+    Compute Cook's distance D_I and return stats (β, se, t, p) for global and subgroup models.
     """
     X = np.asarray(X)
     y = np.asarray(y).reshape(-1)
@@ -43,7 +44,7 @@ def cooks_distance_emm(X, y, mask, add_intercept=True, use_pinv=True):
     yG = y[mask]
     s = _ols_with_stats(XG, yG, use_pinv=use_pinv)
 
-    # Cook's D_I: ((β_G - β)^T (X^T X) (β_G - β)) / (p * s_global^2)
+    # Cook's distance D_I: ((β_G - β)^T (X^T X) (β_G - β)) / (p * s_global^2)
     delta = s["beta"] - g["beta"]
     D = float(delta.T @ g["XTX"] @ delta) / (p * g["s2"])
 
@@ -68,12 +69,13 @@ def cooks_distance_emm(X, y, mask, add_intercept=True, use_pinv=True):
     }
 
 
-# --- 1) Helpers to create atomic conditions (pattern language) ---
 def bin_numeric_series(s, n_bins=12):
-    # equal-frequency binning; labels are intervals
+    """
+    Given a numeric series, return a list of bins with constant interval width.
+    """
+    # equal-frequency binning
     cats, bins = pd.qcut(s, q=n_bins, duplicates="drop", retbins=True)
-    # produce atomic predicates: s <= b_k and s > b_k (or intervals)
-    # here we’ll return interval conditions as strings for readability
+    # produce interval labels as ("num_interval", colname, pd.Interval)
     levels = cats.cat.categories
     return [("num_interval", s.name, iv) for iv in levels]  # iv is a pd.Interval
 
@@ -130,7 +132,7 @@ def _ols_with_stats(X_design, y, use_pinv=True):
         "se": se,
         "t": tvals,
         "p": pvals,
-        "XTX": XTX,           # return for Cook's D (global)
+        "XTX": XTX,           
     }
 
 
@@ -160,9 +162,12 @@ def atomic_conditions(df, attr_config):
             raise ValueError(f"Unknown kind for {col}: {kind}")
     return atoms
 
-# --- 2) Apply a conjunction of atoms to get a boolean mask ---
-
 def mask_from_atoms(df, atoms_subset):
+    """
+    Given a list of (predicate, label) tuples, return a boolean mask for df rows
+    that satisfy all predicates.
+    If atoms_subset is empty, return all True.
+    """
     if not atoms_subset:
         return np.ones(len(df), dtype=bool)
     mask = np.ones(len(df), dtype=bool)
@@ -170,13 +175,16 @@ def mask_from_atoms(df, atoms_subset):
         mask &= df.apply(pred, axis=1)
     return mask
 
-# --- 3) Beam search over conjunctions ---
 
 def emm_beam_search(
     df, X_cols, y_col, attr_config,
     beam_width=10, max_depth=2, min_support=100,
     top_S=10
 ):
+    """
+    Beam search for subgroups with high Cook's distance D_I.
+    Returns a list of (description, D, mask, tbl_group, tbl_global).
+    """
     X = df[X_cols].to_numpy()
     y = df[y_col].to_numpy()
     atoms = atomic_conditions(df, attr_config)
@@ -189,9 +197,8 @@ def emm_beam_search(
                 continue
             try:
                 res = cooks_distance_emm(X, y, mask)
-                D = res["D"]
 
-                # build names (we used add_intercept=True in cooks_distance_emm)
+                D = res["D"]
                 names = ["Intercept"] + list(X_cols)
 
                 # subgroup coef table
@@ -231,12 +238,13 @@ def emm_beam_search(
 
             except Exception:
                 continue
-
+            # description string
             desc = " ∧ ".join(lbl for _, lbl in atoms_subset)
             results.append((desc, D, mask.copy(), atoms_subset, tbl_group, tbl_global))
         results.sort(key=lambda t: t[1], reverse=True)
         return results
 
+    # Start beam search
     level1_cands = [ (a,) for a in atoms ]
     level1_scored = score_candidates(level1_cands)
     top_overall = level1_scored[:top_S]
@@ -261,32 +269,3 @@ def emm_beam_search(
 
     return [(desc, D, mask, tbl_group, tbl_global) for (desc, D, mask, _, tbl_group, tbl_global) in top_overall]
 
-
-df = pd.read_csv('../data_final.csv')
-numeric_cols = ["total_course_activities", "active_minutes", 'nr_distinct_files_viewed', 'nr_practice_exams_viewed']
-df = df.copy()
-for c in numeric_cols:
-    df[c] = pd.to_numeric(df[c], errors="coerce")
-df = df.dropna(subset=numeric_cols).reset_index(drop=True)
-
-# Suppose df is your DataFrame; choose predictors X_cols and target y_col
-attr_config = {
-    # declare which columns are used to DEFINE subgroups (attributes)
-    # e.g. "Variety": "categorical", "Income": "numeric", ..
-    #'faculty': 'categorical',
-    'sex': 'categorical',
-    'croho': 'categorical',
-    'course_repeater': 'categorical',
-    'ECTS' :'numeric',
-    'GPA': 'numeric',
-    'origin' : 'categorical'
-}
-
-# for desc, D, mask, tbl_group, tbl_global in top:
-#     n = int(mask.sum())
-#     print(f"{desc} -> Cook D={D:.4f}  (n={n})")
-#     print("  Subgroup OLS (β, se, t, p, sig):")
-#     print(tbl_group.to_string(float_format=lambda x: f"{x:.6g}"))
-#     print("  Global OLS (β, se, t, p, sig):")
-#     print(tbl_global.to_string(float_format=lambda x: f"{x:.6g}"))
-#     print("-" * 60)
