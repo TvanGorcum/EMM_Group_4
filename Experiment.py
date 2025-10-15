@@ -8,12 +8,15 @@ from regression import (
     train_complex_linear_regression,
     collect_subgroup_models,
     save_models_csv,
-    NUMERIC_COLS, X_COLS, Y_COL, ATTR_CONFIG,
-)
+    NUMERIC_COLS, X_COLS, Y_COL, ATTR_CONFIG,)
+from evaluation import evaluate_linear_model, evaluate_models_by_subgroup
+
+target_col = 'CalculatedNumericResult'
+basic_baseline_cols = ['ECTS', 'GPA']
+complex_baseline_cols = ['ECTS', 'GPA', 'course_repeater']
 
 #set your variables
 datafile = '../data_final.csv'
-target_col = 'CalculatedNumericResult'
 test_size = 0.2
 
 #Load the data and split it into train/test
@@ -32,12 +35,17 @@ complex_model = train_complex_linear_regression(train_df)
 
 #Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
 models = collect_subgroup_models(train_df,)
-
+print(models)
 print(f"Collected {len(models)} subgroup models.")
 # --- Save to CSV (one row per subgroup-term) ---
 save_models_csv(models, "subgroup_linear_models1.csv")
 # Optional: quick sanity print
 print(f"Exported {len(models)} subgroup models to subgroup_linear_models.csv")
+#evaluation metrics for baseline models
+metrics_basic = evaluate_linear_model(model = basic_model, df = test_df, X_cols= basic_baseline_cols , y_col= target_col)
+print('Basic baseline evaluation metrics:', metrics_basic)
+metrics_complex = evaluate_linear_model(model = complex_model, df = test_df, X_cols= complex_baseline_cols , y_col= target_col)
+print('Complex baseline evaluation metrics:', metrics_complex)
 
 
 
