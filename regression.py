@@ -5,35 +5,9 @@
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from typing import List, Dict, Any, Tuple
+import numpy as np
 
 from subgroup_finder import emm_beam_search
-
-# --- Central config (exported so other files can import if needed) ---
-NUMERIC_COLS: List[str] = [
-    "total_course_activities",
-    "active_minutes",
-    "nr_distinct_files_viewed",
-    "nr_practice_exams_viewed",
-]
-
-ATTR_CONFIG: Dict[str, str] = {
-    "sex": "categorical",
-    "croho": "categorical",
-    "course_repeater": "categorical",
-    "ECTS": "numeric",
-    "GPA": "numeric",
-    "origin": "categorical",
-}
-
-X_COLS: List[str] = [
-    "total_course_activities",
-    "active_minutes",
-    "nr_distinct_files_viewed",
-    "nr_practice_exams_viewed",
-]
-
-Y_COL: str = "CalculatedNumericResult"
-
 
 def train_basic_linear_regression(df, feature_cols = ['ECTS', 'GPA'], target_col = 'CalculatedNumericResult'):
     X = df[feature_cols]
@@ -61,9 +35,9 @@ def train_complex_linear_regression(df, feature_cols = ['ECTS', 'GPA', 'course_r
 
 def collect_subgroup_models(
     df: pd.DataFrame,
-    X_cols = X_COLS,
-    y_col = Y_COL,
-    attr_config = ATTR_CONFIG,
+    X_cols,
+    y_col,
+    attr_config,
     *,
     beam_width: int = 10,
     max_depth: int = 3,
@@ -134,5 +108,34 @@ def models_to_long_dataframe(models: List[Dict[str, Any]]) -> pd.DataFrame:
 def save_models_csv(models: List[Dict[str, Any]], path: str) -> None:
     df_long = models_to_long_dataframe(models)
     df_long.to_csv(path, index=False)
+
+def rebuild_models(models):
+    """
+    Convert the 'group_coef' data from each entry in models into
+    sklearn LinearRegression objects, ready for prediction.
+    Returns a dict: {description: (regressor, feature_order)}
+    """
+    model_objects = {}
+
+    for m in models:
+        desc = m["description"]
+        coef_dict = m["group_coef"]
+
+        # Extract intercept and coefficients
+        intercept = coef_dict.get("Intercept", 0.0)
+        # Remove intercept to get only features
+        features = [k for k in coef_dict.keys() if k != "Intercept"]
+        coefs = np.array([coef_dict[f] for f in features]).reshape(1, -1)
+
+        # Build sklearn LinearRegression model
+        reg = LinearRegression()
+        reg.coef_ = coefs
+        reg.intercept_ = intercept
+        reg.feature_names_in_ = np.array(features)
+        reg.n_features_in_ = len(features)
+
+        model_objects[desc] = (reg, features)
+
+    return model_objects
 
 
