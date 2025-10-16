@@ -29,10 +29,10 @@ ATTR_CONFIG = {
 }
 
 X_COLS = [
-    "total_course_activities",
-    "active_minutes",
-    "nr_distinct_files_viewed",
-    "nr_practice_exams_viewed",
+    "total_attended_labsessions",
+    "GPA",
+    # "nr_distinct_files_viewed",
+    # "nr_practice_exams_viewed",
 ]
 
 Y_COL = "final_exam"
@@ -43,7 +43,7 @@ complex_baseline_cols = ['total_attended_labsessions', 'GPA', 'course_repeater']
 
 #set your variables
 datafile = '../data_final.csv'
-test_size = 0.2
+test_size = 0.4
 
 #Load the data and split it into train/test
 #This assumes the data is cleaned and there are no NaNs. The whole section below needs to be revised when Hilde has made cleaned the dataset
@@ -75,7 +75,7 @@ metrics_complex = evaluate_linear_model(model = complex_model, df = test_df, X_c
 print('Complex baseline evaluation metrics:', metrics_complex)
 
 #For each subgroup regression model, find results:
-subgroups_dfs = get_rows_subgroup(models, train_df) #Returns a dictionary of dataframes with as key the description of the subgroups and as df the rows which adhere to that subgroup
+subgroups_dfs = get_rows_subgroup(models, test_df) #Returns a dictionary of dataframes with as key the description of the subgroups and as df the rows which adhere to that subgroup
 print(models_usable)
 print(subgroups_dfs)
 results_sg_models = []
@@ -89,11 +89,13 @@ for description, (reg, feats) in models_usable.items():
     )
     print(description+':', result_sg_model)
     result_sg_model['description'] = description
+    result_sg_model['n_rows_tested'] = len(subdf)
     results_sg_models.append(result_sg_model)
 
 metrics_basic['description'] = 'basic_baseline'
+metrics_basic['n_rows_tested'] = len(test_df)
 metrics_complex['description'] = 'complex_baseline'
-
+metrics_complex['n_rows_tested'] = len(test_df)
 # Add both baselines to the results list
 results_sg_models.extend([metrics_basic, metrics_complex])
 results_df = pd.DataFrame(results_sg_models)
