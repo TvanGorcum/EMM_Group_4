@@ -79,17 +79,27 @@ subgroups_dfs = get_rows_subgroup(models, test_df) #Returns a dictionary of data
 print(models_usable)
 print(subgroups_dfs)
 results_sg_models = []
-for description, (reg, feats) in models_usable.items():
+for model_dict in models:
+    description = model_dict.get("description")
+    cookD = model_dict.get("cookD", None)
+    n = model_dict.get("n", None)
+    reg, feats = models_usable[description]
     subdf = subgroups_dfs[description]
+
+    # Evaluate subgroup model
     result_sg_model = evaluate_linear_model(
-        model=reg,                 # <- only the sklearn estimator
+        model=reg,
         df=subdf,
-        X_cols=feats,             # <- use the matching feature list
+        X_cols=feats,
         y_col=target_col
     )
-    print(description+':', result_sg_model)
+
+    # Add metadata
     result_sg_model['description'] = description
-    result_sg_model['n_rows_tested'] = len(subdf)
+    result_sg_model['cookD'] = cookD
+    result_sg_model['n_test'] = len(subdf)
+    result_sg_model['n_train'] = n
+
     results_sg_models.append(result_sg_model)
 
 metrics_basic['description'] = 'basic_baseline'
