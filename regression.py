@@ -138,4 +138,41 @@ def rebuild_models(models):
 
     return model_objects
 
+def final_estimator_with_coefs(model):
+    """
+    If model is a Pipeline, return the last step that has coef_.
+    Otherwise return the model itself.
+    """
+    est = model
+    if hasattr(model, "named_steps"):
+        for name, step in reversed(list(model.named_steps.items())):
+            if hasattr(step, "coef_"):
+                est = step
+                break
+    elif hasattr(model, "steps"):
+        for name, step in reversed(list(model.steps)):
+            if hasattr(step, "coef_"):
+                est = step
+                break
+    return est
+
+def extract_linear_coefs(model, feature_names):
+    """
+    Return dict with intercept + per-feature coefficients.
+    Dynamic column names: 'intercept' and 'coef__<feature_name>'.
+    Falls back to None if model doesn't have coef_/intercept_.
+    """
+    est = final_estimator_with_coefs(model)
+    intercept = getattr(est, "intercept_", None)
+    coefs = getattr(est, "coef_", None)
+
+    out = {"intercept": float(intercept) if intercept is not None else None}
+    if coefs is None:
+        out.update({f"coef__{f}": None for f in feature_names})
+        return out
+
+    coefs = np.ravel(coefs)
+    for f, c in zip(feature_names, coefs):
+        out[f"coef__{f}"] = float(c)
+    return out
 

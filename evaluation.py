@@ -6,6 +6,17 @@ import pandas as pd
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import re
 import ast
+
+def ensure_dict(x):
+    if isinstance(x, dict):
+        return x.copy()
+    if isinstance(x, pd.Series):
+        return x.to_dict()
+    if isinstance(x, pd.DataFrame) and len(x) == 1:
+        return x.iloc[0].to_dict()
+    if isinstance(x, tuple) and len(x) >= 1:
+        return ensure_dict(x[0])
+    return dict(x)
 #We still need to settle and explain appropriate
 def evaluate_linear_model(
     model,

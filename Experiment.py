@@ -8,8 +8,10 @@ from regression import (
     train_complex_linear_regression,
     collect_subgroup_models,
     save_models_csv,
-    rebuild_models,)
-from evaluation import evaluate_linear_model, get_rows_subgroup
+    rebuild_models,
+    final_estimator_with_coefs,
+    extract_linear_coefs)
+from evaluation import evaluate_linear_model, get_rows_subgroup, ensure_dict
 
 # --- Central config (exported so other files can import if needed) ---
 NUMERIC_COLS = [
@@ -74,43 +76,113 @@ print('Basic baseline evaluation metrics:', metrics_basic)
 metrics_complex = evaluate_linear_model(model = complex_model, df = test_df, X_cols= complex_baseline_cols , y_col= target_col)
 print('Complex baseline evaluation metrics:', metrics_complex)
 
-#For each subgroup regression model, find results:
-subgroups_dfs = get_rows_subgroup(models, test_df) #Returns a dictionary of dataframes with as key the description of the subgroups and as df the rows which adhere to that subgroup
-print(models_usable)
-print(subgroups_dfs)
-results_sg_models = []
+# ---------- build subgroup masks for both train and test ----------
+subgroups_train = get_rows_subgroup(models, train_df)  # {description: df_train_sub}
+subgroups_test  = get_rows_subgroup(models, test_df)   # {description: df_test_sub}
+
+results_rows = []
+
+# ---------- per-subgroup: evaluate discovered model + fit/evaluate baselines ----------
 for model_dict in models:
     description = model_dict.get("description")
     cookD = model_dict.get("cookD", None)
-    n = model_dict.get("n", None)
-    reg, feats = models_usable[description]
-    subdf = subgroups_dfs[description]
+    n_found = model_dict.get("n", None)
 
-    # Evaluate subgroup model
-    result_sg_model = evaluate_linear_model(
+    # subgroup data
+    train_sub = subgroups_train.get(description, pd.DataFrame())
+    test_sub  = subgroups_test.get(description, pd.DataFrame())
+
+    n_train_sub = len(train_sub)
+    n_test_sub  = len(test_sub)
+
+    # ---- (A) Evaluate discovered subgroup model on subgroup test ----
+    reg, feats = models_usable[description]
+
+    metrics_discovered_raw = evaluate_linear_model(
         model=reg,
-        df=subdf,
+        df=test_sub,
         X_cols=feats,
         y_col=target_col
     )
+    row_disc = ensure_dict(metrics_discovered_raw)
+    row_disc.update(extract_linear_coefs(reg, feats))
+    row_disc.update({
+        "model_type": "subgroup_model",
+        "description": description,
+        "cookD": cookD,
+        "n_train": n_train_sub,
+        "n_test": n_test_sub,
+    })
+    results_rows.append(row_disc)
 
-    # Add metadata
-    result_sg_model['description'] = description
-    result_sg_model['cookD'] = cookD
-    result_sg_model['n_test'] = len(subdf)
-    result_sg_model['n_train'] = n
+    # ---- (B) Fit + evaluate BASIC baseline on subgroup ----
+    # Only fit if we have at least some train rows
+    if n_train_sub > 0:
+            basic_sg_model = train_basic_linear_regression(train_sub, basic_baseline_cols)
+            metrics_basic_sg_raw = evaluate_linear_model(
+                model=basic_sg_model,
+                df=test_sub,
+                X_cols=basic_baseline_cols,
+                y_col=target_col
+            )
+            row_basic = ensure_dict(metrics_basic_sg_raw)
+            row_basic.update(extract_linear_coefs(basic_sg_model, basic_baseline_cols))
+            row_basic.update({
+                "model_type": "subgroup_baseline_basic",
+                "description": description,
+                "cookD": cookD,
+                "n_train": n_train_sub,
+                "n_test": n_test_sub
+            })
+            results_rows.append(row_basic)
 
-    results_sg_models.append(result_sg_model)
+    # ---- (C) Fit + evaluate COMPLEX baseline on subgroup ----
+    if n_train_sub > 0:
+            complex_sg_model = train_complex_linear_regression(train_sub, complex_baseline_cols)
+            metrics_complex_sg_raw = evaluate_linear_model(
+                model=complex_sg_model,
+                df=test_sub,
+                X_cols=complex_baseline_cols,
+                y_col=target_col
+            )
+            row_complex = ensure_dict(metrics_complex_sg_raw)
+            row_complex.update(extract_linear_coefs(complex_sg_model, complex_baseline_cols))
+            row_complex.update({
+                "model_type": "subgroup_baseline_complex",
+                "description": description,
+                "cookD": cookD,
+                "n_train": n_train_sub,
+                "n_test": n_test_sub,
+            })
+            results_rows.append(row_complex)
 
-metrics_basic['description'] = 'basic_baseline'
-metrics_basic['n_rows_tested'] = len(test_df)
-metrics_complex['description'] = 'complex_baseline'
-metrics_complex['n_rows_tested'] = len(test_df)
-# Add both baselines to the results list
-results_sg_models.extend([metrics_basic, metrics_complex])
-results_df = pd.DataFrame(results_sg_models)
+# 
+mb = ensure_dict(metrics_basic)
+mb.update(extract_linear_coefs(basic_model, basic_baseline_cols))
+mb.update({
+    "model_type": "global_baseline_basic",
+    "description": "N/A",
+    "cookD": None,
+    "n_train": len(train_df),
+    "n_test": len(test_df),
+})
+results_rows.append(mb)
 
-results_df.to_csv('subgroup_model_results.csv', index=False)
+mc = ensure_dict(metrics_complex)
+mc.update(extract_linear_coefs(complex_model, complex_baseline_cols))
+mc.update({
+    "model_type": "global_baseline_complex",
+    "description": "N/A",
+    "cookD": None,
+    "n_train": len(train_df),
+    "n_test": len(test_df),
+})
+results_rows.append(mc)
+
+#Save
+results_df = pd.DataFrame.from_records(results_rows)
+results_df.to_csv("subgroup_model_results.csv", index=False)
+
 
 
 
