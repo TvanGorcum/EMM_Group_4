@@ -178,7 +178,7 @@ def mask_from_atoms(df, atoms_subset):
 
 def emm_beam_search(
     df, X_cols, y_col, attr_config,
-    beam_width=10, max_depth=2, min_support=100,
+    beam_width=10, max_depth=3, min_support=100,
     top_S=10
 ):
     """

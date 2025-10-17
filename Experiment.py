@@ -2,6 +2,7 @@
 #define variables to test and find subgroups on
 import pandas as pd
 from sklearn.model_selection import train_test_split
+import numpy as np
 #imports from other files
 from regression import (
     train_basic_linear_regression,
@@ -10,39 +11,42 @@ from regression import (
     save_models_csv,
     rebuild_models,
     final_estimator_with_coefs,
-    extract_linear_coefs)
+    extract_linear_coefs,
+    add_subgroup_terms,
+    partial_f_test,
+    _design_matrix,
+    _ols_with_stats_matrix,
+    _augment_with_kept,)
 from evaluation import evaluate_linear_model, get_rows_subgroup, ensure_dict
 
-# --- Central config (exported so other files can import if needed) ---
 NUMERIC_COLS = [
     "total_course_activities",
     "active_minutes",
     "nr_distinct_files_viewed",
     "nr_practice_exams_viewed",
 ]
-
+#for subgroup finding
 ATTR_CONFIG = {
     "sex": "categorical",
     "croho": "categorical",
-    "course_repeater": "categorical",
     "ECTS": "categorical",
     "GPA": "numeric",
     "origin": "categorical",
+    "course_repeater": "categorical",
 }
-
+#For regression:
 X_COLS = [
     "total_attended_labsessions",
-    "GPA",
-    # "nr_distinct_files_viewed",
-    # "nr_practice_exams_viewed",
+    "active_minutes",
+    "nr_distinct_files_viewed",
+
 ]
 
 Y_COL = "final_exam"
 
 target_col = 'final_exam'
-basic_baseline_cols = ['total_attended_labsessions','GPA']
-complex_baseline_cols = ['total_attended_labsessions', 'GPA', 'course_repeater']
-
+basic_baseline_cols = ['nr_distinct_files_viewed']
+complex_baseline_cols = X_COLS
 #set your variables
 datafile = '../data_final.csv'
 test_size = 0.4
@@ -56,13 +60,12 @@ for c in NUMERIC_COLS:
 df = df.dropna(subset=NUMERIC_COLS).reset_index(drop=True)
 df = df.dropna(subset=['GPA', 'ECTS'])
 train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
-
 # Train the basic and complex linear regression baseline on train data
 basic_model = train_basic_linear_regression(train_df, basic_baseline_cols)
 complex_model = train_complex_linear_regression(train_df, complex_baseline_cols)
 
 #Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
-models = collect_subgroup_models(train_df, X_COLS, Y_COL, ATTR_CONFIG,)
+models = collect_subgroup_models(train_df, X_COLS, Y_COL, ATTR_CONFIG)
 models_usable = rebuild_models(models)
 print(models)
 print(f"Collected {len(models)} subgroup models.")
@@ -156,7 +159,7 @@ for model_dict in models:
             })
             results_rows.append(row_complex)
 
-# 
+#
 mb = ensure_dict(metrics_basic)
 mb.update(extract_linear_coefs(basic_model, basic_baseline_cols))
 mb.update({
@@ -183,7 +186,72 @@ results_rows.append(mc)
 results_df = pd.DataFrame.from_records(results_rows)
 results_df.to_csv("subgroup_model_results.csv", index=False)
 
+#Testing approach 2
+ALPHA_F = 0.05
+ALPHA_T = 0.05
+BASE_GLOBAL_COLS = X_COLS[:]
+KEPT_SUBGROUPS = []
 
+models_sorted = sorted(models, key=lambda m: m.get("cookD", -np.inf), reverse=True)
+current_feature_cols = BASE_GLOBAL_COLS[:]
+global_model = train_basic_linear_regression(train_df, feature_cols=current_feature_cols, target_col=target_col)
+
+for m in models_sorted:
+    desc = m["description"]
+    # Build frames that include ALL previously kept subgroup terms
+    train_aug_all = _augment_with_kept(train_df, KEPT_SUBGROUPS, BASE_GLOBAL_COLS)
+    test_aug_all = _augment_with_kept(test_df, KEPT_SUBGROUPS, BASE_GLOBAL_COLS)
+
+    # Now add the CURRENT candidate subgroup on top
+    train_aug, gamma_name, inter_cols = add_subgroup_terms(train_aug_all, desc, BASE_GLOBAL_COLS)
+    test_aug, _, _ = add_subgroup_terms(test_aug_all, desc, BASE_GLOBAL_COLS, gamma_name=gamma_name)
+
+    reduced_cols = current_feature_cols[:]  # includes earlier kept gammas & interactions
+    added_cols = [gamma_name] + inter_cols  # current candidate's new terms
+    full_cols = reduced_cols + added_cols
+    if test_aug[gamma_name].sum() == 0 or train_aug[gamma_name].sum() == 0:
+        print(f"[Skip] '{desc}': subgroup has no rows in train or test.")
+        continue
+    y_test = test_aug[target_col].to_numpy()
+    Xr_test, names_r = _design_matrix(test_aug, reduced_cols, add_intercept=True)
+    Xf_test, names_f = _design_matrix(test_aug, full_cols, add_intercept=True)
+    try:
+        F, pF, q, df_full = partial_f_test(y_test, Xr_test, Xf_test)
+    except Exception as e:
+        print(f"[Skip] '{desc}': F-test failed ({e}).")
+        continue
+    fit_full_test = _ols_with_stats_matrix(Xf_test, y_test)
+    added_term_indices = [names_f.index(c) for c in added_cols if c in names_f]
+    added_t = fit_full_test["t"][added_term_indices]
+    added_p = fit_full_test["p"][added_term_indices]
+    keep = (pF < ALPHA_F) and np.any(added_p < ALPHA_T)
+    summary_bits = {
+        "description": desc,
+        "cookD": m.get("cookD"),
+        "F_stat": float(F),
+        "F_pvalue": float(pF) if pF == pF else None,
+        "t_added": [float(t) if t == t else None for t in np.atleast_1d(added_t)],
+        "p_added": [float(p) if p == p else None for p in np.atleast_1d(added_p)],
+        "kept": bool(keep),
+    }
+    print("TEST DECISION:", summary_bits)
+    if keep:
+        current_feature_cols = full_cols[:]
+        global_model = train_basic_linear_regression(train_aug, feature_cols=current_feature_cols, target_col=target_col)
+        KEPT_SUBGROUPS.append((desc, gamma_name, inter_cols, summary_bits))
+
+print(f"\n== FINAL MODEL FEATURES ({len(current_feature_cols)}): {current_feature_cols}")
+print(f"Kept {len(KEPT_SUBGROUPS)} subgroups (by F- & t-tests on hold-out).")
+
+kept_rows = []
+for (desc, gamma_name, inter_cols, summ) in KEPT_SUBGROUPS:
+    kept_rows.append({
+        "description": desc,
+        "gamma": gamma_name,
+        "interaction_cols": "|".join(inter_cols),
+        **{k: v for k, v in summ.items() if k not in ("description",)},
+    })
+pd.DataFrame(kept_rows).to_csv("kept_subgroups_testing_phase.csv", index=False)
 
 
 

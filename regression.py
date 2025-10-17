@@ -1,7 +1,3 @@
-#Train baselines(simple and more complex)
-#'Extract' the subgroup specific models of subgroup_finder.py
-#Make the models with subgroups as dummies
-
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from typing import List, Dict, Any, Tuple
@@ -40,9 +36,9 @@ def collect_subgroup_models(
     attr_config,
     *,
     beam_width: int = 10,
-    max_depth: int = 3,
-    min_support: int = 100,
-    top_S: int = 10,
+    max_depth: int = 4,
+    min_support: int = 50,
+    top_S: int = 50,
 ) -> List[Dict[str, Any]]:
     results = emm_beam_search(
         df,
@@ -176,3 +172,84 @@ def extract_linear_coefs(model, feature_names):
         out[f"coef__{f}"] = float(c)
     return out
 
+def _ensure_2d(a):
+    a = np.asarray(a)
+    return a.reshape(-1, 1) if a.ndim == 1 else a
+
+def _design_matrix(df, cols, add_intercept=True):
+    X = df[cols].to_numpy()
+    names = cols[:]
+    if add_intercept:
+        X = np.column_stack([np.ones(X.shape[0]), X])
+        names = ["Intercept"] + names
+    return X, names
+
+def _ols_with_stats_matrix(X, y):
+    X = np.asarray(X)
+    y = np.asarray(y).reshape(-1)
+    n, p = X.shape
+    XTX_inv = np.linalg.pinv(X.T @ X)
+    beta = XTX_inv @ (X.T @ y)
+    resid = y - X @ beta
+    df_resid = n - p
+    s2 = float(resid.T @ resid) / df_resid
+    var_beta = s2 * XTX_inv
+    se = np.sqrt(np.clip(np.diag(var_beta), 0.0, np.inf))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tvals = np.where(se > 0, beta / se, np.nan)
+    try:
+        from scipy.stats import t as student_t
+        pvals = 2.0 * student_t.sf(np.abs(tvals), df_resid)
+    except Exception:
+        from math import erf, sqrt
+        Phi = lambda z: 0.5 * (1.0 + erf(z / sqrt(2.0)))
+        pvals = 2.0 * (1.0 - np.vectorize(Phi)(np.abs(tvals)))
+    rss = float(resid.T @ resid)
+    return {
+        "beta": beta,
+        "se": se,
+        "t": tvals,
+        "p": pvals,
+        "rss": rss,
+        "df_resid": df_resid,
+    }
+
+def partial_f_test(y, X_reduced, X_full):
+    fit_r = _ols_with_stats_matrix(X_reduced, y)
+    fit_f = _ols_with_stats_matrix(X_full, y)
+    rss_r, rss_f = fit_r["rss"], fit_f["rss"]
+    df_f = fit_f["df_resid"]
+    q = X_full.shape[1] - X_reduced.shape[1]
+    F = ((rss_r - rss_f) / q) / (rss_f / df_f)
+    try:
+        from scipy.stats import f as fdist
+        p = fdist.sf(F, q, df_f)
+    except Exception:
+        p = np.nan
+    return float(F), float(p), int(q), int(df_f)
+
+def add_subgroup_terms(df, description, base_cols, gamma_name=None):
+    from evaluation import _description_to_mask
+    mask = _description_to_mask(df, description)
+    out = df.copy()
+    gamma = gamma_name or f"gamma[{description}]"
+    out[gamma] = mask.astype(int)
+    inter_cols = []
+    for x in base_cols:
+        cname = f"{gamma}*{x}"
+        out[cname] = out[gamma] * out[x]
+        inter_cols.append(cname)
+    return out, gamma, inter_cols
+
+def _augment_with_kept(df, kept, base_cols):
+    out = df.copy()
+    for desc, gamma_name, inter_cols, _ in kept:
+        if gamma_name not in out.columns:
+            from evaluation import _description_to_mask
+            mask = _description_to_mask(out, desc)
+            out[gamma_name] = mask.astype(int)
+        for x in base_cols:
+            cname = f"{gamma_name}*{x}"
+            if cname not in out.columns:
+                out[cname] = out[gamma_name] * out[x]
+    return out
