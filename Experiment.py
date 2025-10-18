@@ -20,10 +20,17 @@ from regression import (
 from evaluation import evaluate_linear_model, get_rows_subgroup, ensure_dict
 
 NUMERIC_COLS = [
-    "total_course_activities",
+    "total_attended_labsessions",
     "active_minutes",
     "nr_distinct_files_viewed",
+    "total_course_activities",
+    "nightly_activities",
+    "distinct_days",
+    "logged_in_weekly",
+    "nr_files_viewed",
+    "nr_slides_viewed",
     "nr_practice_exams_viewed",
+    "bool_practice_exams_viewed"
 ]
 #for subgroup finding
 ATTR_CONFIG = {
@@ -39,7 +46,13 @@ X_COLS = [
     "total_attended_labsessions",
     "active_minutes",
     "nr_distinct_files_viewed",
-
+    "total_course_activities",
+    "nightly_activities",
+    "distinct_days",
+    "logged_in_weekly",
+    "nr_files_viewed",
+    "nr_slides_viewed",
+    "nr_practice_exams_viewed",
 ]
 
 Y_COL = "final_exam"
@@ -49,7 +62,7 @@ basic_baseline_cols = ['nr_distinct_files_viewed']
 complex_baseline_cols = X_COLS
 #set your variables
 datafile = '../data_final.csv'
-test_size = 0.4
+test_size = 0.3
 
 #Load the data and split it into train/test
 #This assumes the data is cleaned and there are no NaNs. The whole section below needs to be revised when Hilde has made cleaned the dataset
@@ -58,7 +71,7 @@ df = df.copy()
 for c in NUMERIC_COLS:
     df[c] = pd.to_numeric(df[c], errors="coerce")
 df = df.dropna(subset=NUMERIC_COLS).reset_index(drop=True)
-df = df.dropna(subset=['GPA', 'ECTS'])
+df = df.dropna(subset=['GPA', 'ECTS',])
 train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
 # Train the basic and complex linear regression baseline on train data
 basic_model = train_basic_linear_regression(train_df, basic_baseline_cols)
@@ -224,7 +237,12 @@ for m in models_sorted:
     added_term_indices = [names_f.index(c) for c in added_cols if c in names_f]
     added_t = fit_full_test["t"][added_term_indices]
     added_p = fit_full_test["p"][added_term_indices]
-    keep = (pF < ALPHA_F) and np.any(added_p < ALPHA_T)
+    # new: pick significant terms only
+    pmap = {col: float(fit_full_test["p"][names_f.index(col)]) for col in added_cols}
+    significant_cols = [col for col in added_cols if pmap[col] < ALPHA_T]
+
+    keep = (pF < ALPHA_F) and (len(significant_cols) > 0)
+
     summary_bits = {
         "description": desc,
         "cookD": m.get("cookD"),
@@ -233,12 +251,23 @@ for m in models_sorted:
         "t_added": [float(t) if t == t else None for t in np.atleast_1d(added_t)],
         "p_added": [float(p) if p == p else None for p in np.atleast_1d(added_p)],
         "kept": bool(keep),
+        "kept_cols": significant_cols,  # <-- add this for transparency
     }
+
     print("TEST DECISION:", summary_bits)
+
     if keep:
-        current_feature_cols = full_cols[:]
-        global_model = train_basic_linear_regression(train_aug, feature_cols=current_feature_cols, target_col=target_col)
-        KEPT_SUBGROUPS.append((desc, gamma_name, inter_cols, summary_bits))
+        # only add the significant columns to the model
+        current_feature_cols = reduced_cols + significant_cols
+
+        # fit the train model on exactly those columns
+        global_model = train_basic_linear_regression(
+            train_aug, feature_cols=current_feature_cols, target_col=target_col
+        )
+
+        # store only the kept interactions (gamma may or may not be kept)
+        kept_inters = [c for c in inter_cols if c in significant_cols]
+        KEPT_SUBGROUPS.append((desc, gamma_name, kept_inters, summary_bits))
 
 print(f"\n== FINAL MODEL FEATURES ({len(current_feature_cols)}): {current_feature_cols}")
 print(f"Kept {len(KEPT_SUBGROUPS)} subgroups (by F- & t-tests on hold-out).")
