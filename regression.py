@@ -11,10 +11,10 @@ def train_basic_linear_regression(df, feature_cols = ['ECTS', 'GPA'], target_col
     model = LinearRegression()
     model.fit(X, y)
     # Print basic model coefficients
-    print("Coefficients (basic linear regression):")
+    #print("Coefficients (basic linear regression):")
     for col, coef in zip(feature_cols, model.coef_):
         print(f"  {col}: {coef}")
-    print("Intercept (basic linear regression):", model.intercept_)
+    #print("Intercept (basic linear regression):", model.intercept_)
     return model
 
 def train_complex_linear_regression(df, feature_cols = ['ECTS', 'GPA', 'course_repeater'], target_col = 'CalculatedNumericResult'): #This model still needs a lot of experimentation
@@ -23,10 +23,10 @@ def train_complex_linear_regression(df, feature_cols = ['ECTS', 'GPA', 'course_r
     model = LinearRegression()
     model.fit(X, y)
     # Print basic model coefficients
-    print("Coefficients (complex linear regression):")
+    #print("Coefficients (complex linear regression):")
     for col, coef in zip(feature_cols, model.coef_):
         print(f"  {col}: {coef}")
-    print("Intercept (complex linear regression):", model.intercept_)
+    #print("Intercept (complex linear regression):", model.intercept_)
     return model
 
 def collect_subgroup_models(

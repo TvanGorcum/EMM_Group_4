@@ -73,11 +73,9 @@ for c in NUMERIC_COLS:
 df = df.dropna(subset=NUMERIC_COLS).reset_index(drop=True)
 df = df.dropna(subset=['GPA', 'ECTS',])
 
-#df = df.drop(df[df.EndResult == "NVD"].index)  #drop rows where target variable is NVD
-
 train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
 # Train the basic and complex linear regression baseline on train data
-basic_model = train_basic_linear_regression(train_df, basic_baseline_cols)
+#basic_model = train_basic_linear_regression(train_df, basic_baseline_cols)
 complex_model = train_complex_linear_regression(train_df, complex_baseline_cols)
 
 #Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
@@ -90,8 +88,8 @@ save_models_csv(models, "subgroup_linear_models1.csv")
 # Optional: quick sanity print
 print(f"Exported {len(models)} subgroup models to subgroup_linear_models.csv")
 #evaluation metrics for baseline models
-metrics_basic = evaluate_linear_model(model = basic_model, df = test_df, X_cols= basic_baseline_cols , y_col= target_col)
-print('Basic baseline evaluation metrics:', metrics_basic)
+#metrics_basic = evaluate_linear_model(model = basic_model, df = test_df, X_cols= basic_baseline_cols , y_col= target_col)
+#print('Basic baseline evaluation metrics:', metrics_basic)
 metrics_complex = evaluate_linear_model(model = complex_model, df = test_df, X_cols= complex_baseline_cols , y_col= target_col)
 print('Complex baseline evaluation metrics:', metrics_complex)
 
@@ -114,79 +112,51 @@ for model_dict in models:
     n_train_sub = len(train_sub)
     n_test_sub  = len(test_sub)
 
-    # ---- (A) Evaluate discovered subgroup model on subgroup test ----
-    reg, feats = models_usable[description]
+    # If there's no test data for this subgroup we can't evaluate — skip
+    if n_test_sub == 0:
+        continue
 
-    metrics_discovered_raw = evaluate_linear_model(
-        model=reg,
+    # 1) Evaluate GLOBAL complex model on this subgroup's test set (subgroup baseline)
+    metrics_global_on_sub = evaluate_linear_model(
+        model=complex_model,
         df=test_sub,
-        X_cols=feats,
-        y_col=target_col
+        X_cols=complex_baseline_cols,
+        y_col=target_col,
     )
-    row_disc = ensure_dict(metrics_discovered_raw)
-    row_disc.update(extract_linear_coefs(reg, feats))
-    row_disc.update({
-        "model_type": "subgroup_model",
+    row_global_on_sub = ensure_dict(metrics_global_on_sub)
+    row_global_on_sub.update(extract_linear_coefs(complex_model, complex_baseline_cols))
+    row_global_on_sub.update({
+        "model_type": "subgroup_baseline_global",
         "description": description,
         "cookD": cookD,
         "n_train": n_train_sub,
         "n_test": n_test_sub,
     })
-    results_rows.append(row_disc)
+    results_rows.append(row_global_on_sub)
 
-    # ---- (B) Fit + evaluate BASIC baseline on subgroup ----
-    # Only fit if we have at least some train rows
+    # 2) Retrain the same global architecture on subgroup TRAIN and evaluate on subgroup TEST
+    # Only do this when we have at least one training row in the subgroup
     if n_train_sub > 0:
-            basic_sg_model = train_basic_linear_regression(train_sub, basic_baseline_cols)
-            metrics_basic_sg_raw = evaluate_linear_model(
-                model=basic_sg_model,
-                df=test_sub,
-                X_cols=basic_baseline_cols,
-                y_col=target_col
-            )
-            row_basic = ensure_dict(metrics_basic_sg_raw)
-            row_basic.update(extract_linear_coefs(basic_sg_model, basic_baseline_cols))
-            row_basic.update({
-                "model_type": "subgroup_baseline_basic",
-                "description": description,
-                "cookD": cookD,
-                "n_train": n_train_sub,
-                "n_test": n_test_sub
-            })
-            results_rows.append(row_basic)
+        local_complex = train_complex_linear_regression(train_sub, complex_baseline_cols)
+        metrics_local_complex = evaluate_linear_model(
+            model=local_complex,
+            df=test_sub,
+            X_cols=complex_baseline_cols,
+            y_col=target_col,
+        )
+        row_local = ensure_dict(metrics_local_complex)
+        row_local.update(extract_linear_coefs(local_complex, complex_baseline_cols))
+        row_local.update({
+            "model_type": "subgroup_model",  # retrained-on-subgroup row
+            "description": description,
+            "cookD": cookD,
+            "n_train": n_train_sub,
+            "n_test": n_test_sub,
+        })
+        results_rows.append(row_local)
 
-    # ---- (C) Fit + evaluate COMPLEX baseline on subgroup ----
-    if n_train_sub > 0:
-            complex_sg_model = train_complex_linear_regression(train_sub, complex_baseline_cols)
-            metrics_complex_sg_raw = evaluate_linear_model(
-                model=complex_sg_model,
-                df=test_sub,
-                X_cols=complex_baseline_cols,
-                y_col=target_col
-            )
-            row_complex = ensure_dict(metrics_complex_sg_raw)
-            row_complex.update(extract_linear_coefs(complex_sg_model, complex_baseline_cols))
-            row_complex.update({
-                "model_type": "subgroup_baseline_complex",
-                "description": description,
-                "cookD": cookD,
-                "n_train": n_train_sub,
-                "n_test": n_test_sub,
-            })
-            results_rows.append(row_complex)
-
-#
-mb = ensure_dict(metrics_basic)
-mb.update(extract_linear_coefs(basic_model, basic_baseline_cols))
-mb.update({
-    "model_type": "global_baseline_basic",
-    "description": "N/A",
-    "cookD": None,
-    "n_train": len(train_df),
-    "n_test": len(test_df),
-})
-results_rows.append(mb)
-
+    # (removed: subgroup_discovered_model and subgroup_baseline_complex rows)
+# ...existing code...
 mc = ensure_dict(metrics_complex)
 mc.update(extract_linear_coefs(complex_model, complex_baseline_cols))
 mc.update({

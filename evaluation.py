@@ -29,9 +29,9 @@ def evaluate_linear_model(
     y_pred = model.predict(X)
 
     return {
-        "r2": r2_score(y, y_pred),
-        "mae": mean_absolute_error(y, y_pred),
-        "mse": mean_squared_error(y, y_pred)
+        "r2": round(r2_score(y, y_pred), 3),
+        "mae": round(mean_absolute_error(y, y_pred), 3),
+        "mse": round(mean_squared_error(y, y_pred), 3)
     }
 
 def _split_and(description: str):
