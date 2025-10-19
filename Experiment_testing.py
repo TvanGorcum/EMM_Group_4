@@ -51,9 +51,9 @@ X_COLS = [
     "total_course_activities",
     #"nightly_activities",
     "distinct_days",
-    "logged_in_weekly",
+    #"logged_in_weekly",
     "nr_files_viewed",
-    "nr_slides_viewed",
+    #"nr_slides_viewed",
     "nr_practice_exams_viewed",
     #"bool_practice_exams_viewed"
 ]
@@ -140,6 +140,7 @@ for model_dict in models:
         y_col=target_col,
     )
     row_global_on_sub = ensure_dict(metrics_global_on_sub)
+    # Add coefficients and p-values for each coefficient
     row_global_on_sub.update(extract_linear_coefs(complex_model, complex_baseline_cols))
     row_global_on_sub.update({
         "model_type": "subgroup_baseline_global",
@@ -161,9 +162,10 @@ for model_dict in models:
             y_col=target_col,
         )
         row_local = ensure_dict(metrics_local_complex)
+        # Add coefficients and p-values for each coefficient
         row_local.update(extract_linear_coefs(local_complex, complex_baseline_cols))
         row_local.update({
-            "model_type": "subgroup_model",  # retrained-on-subgroup row
+            "model_type": "subgroup_model",
             "description": description,
             "cookD": round(cookD, 5),
             "n_train": n_train_sub,
@@ -175,7 +177,7 @@ for model_dict in models:
 mc = ensure_dict(metrics_complex)
 mc.update(extract_linear_coefs(complex_model, complex_baseline_cols))
 mc.update({
-    "model_type": "global_baseline_complex",
+    "model_type": "global_baseline",
     "description": "N/A",
     "cookD": None,
     "n_train": len(train_df),

@@ -6,6 +6,8 @@ import pandas as pd
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import re
 import ast
+import statsmodels.api as sm
+import numpy as np
 
 def ensure_dict(x):
     if isinstance(x, dict):
@@ -21,10 +23,10 @@ def ensure_dict(x):
 def evaluate_linear_model(
     model,
     df: pd.DataFrame,
-    X_cols: List[str],
+    X_cols: list,
     y_col: str
-) -> Dict[str, float]:
-    X = df[X_cols].values
+) -> dict:
+    X = sm.add_constant(df[X_cols], has_constant='add')
     y = df[y_col].values
     y_pred = model.predict(X)
 
@@ -33,7 +35,8 @@ def evaluate_linear_model(
     return {
         "r2": round(r2_score(y, y_pred), 4),
         "mae": round(mean_absolute_error(y, y_pred), 4),
-        "mse": round(mean_squared_error(y, y_pred), 4)
+        "mse": round(mean_squared_error(y, y_pred), 4),
+        "mean_residual": round(np.mean(y - y_pred), 4)
     }
 
 def _split_and(description: str):

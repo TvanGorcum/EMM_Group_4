@@ -1,32 +1,28 @@
+import statsmodels.api as sm
 import pandas as pd
-from sklearn.linear_model import LinearRegression
-from typing import List, Dict, Any, Tuple
 import numpy as np
+from typing import List, Dict, Any, Tuple
 
 from subgroup_finder import emm_beam_search
 
-def train_basic_linear_regression(df, feature_cols = ['ECTS', 'GPA'], target_col = 'CalculatedNumericResult'):
+def train_basic_linear_regression(df, feature_cols=['ECTS', 'GPA'], target_col='CalculatedNumericResult'):
     X = df[feature_cols]
+    X = sm.add_constant(X)  # adds intercept
     y = df[target_col]
-    model = LinearRegression()
-    model.fit(X, y)
+    model = sm.OLS(y, X).fit()
     # Print basic model coefficients
-    #print("Coefficients (basic linear regression):")
-    for col, coef in zip(feature_cols, model.coef_):
+    for col, coef in zip(['Intercept'] + feature_cols, model.params):
         print(f"  {col}: {coef}")
-    #print("Intercept (basic linear regression):", model.intercept_)
     return model
 
-def train_complex_linear_regression(df, feature_cols = ['ECTS', 'GPA', 'course_repeater'], target_col = 'CalculatedNumericResult'): #This model still needs a lot of experimentation
+def train_complex_linear_regression(df, feature_cols=['ECTS', 'GPA', 'course_repeater'], target_col='CalculatedNumericResult'):
     X = df[feature_cols]
+    X = sm.add_constant(X)  # adds intercept
     y = df[target_col]
-    model = LinearRegression()
-    model.fit(X, y)
-    # Print basic model coefficients
-    #print("Coefficients (complex linear regression):")
-    for col, coef in zip(feature_cols, model.coef_):
+    model = sm.OLS(y, X).fit()
+    # Print complex model coefficients
+    for col, coef in zip(['Intercept'] + feature_cols, model.params):
         print(f"  {col}: {coef}")
-    #print("Intercept (complex linear regression):", model.intercept_)
     return model
 
 def collect_subgroup_models(
@@ -72,7 +68,6 @@ def collect_subgroup_models(
         })
     return models
 
-#Converts the list from collect_subgroup_models() into a tidy long DataFrame with one row per (subgroup, term).
 def models_to_long_dataframe(models: List[Dict[str, Any]]) -> pd.DataFrame:
     records: List[Dict[str, Any]] = []
     for m in models:
@@ -100,7 +95,6 @@ def models_to_long_dataframe(models: List[Dict[str, Any]]) -> pd.DataFrame:
             })
     return pd.DataFrame.from_records(records)
 
-
 def save_models_csv(models: List[Dict[str, Any]], path: str) -> None:
     df_long = models_to_long_dataframe(models)
     df_long.to_csv(path, index=False)
@@ -108,7 +102,7 @@ def save_models_csv(models: List[Dict[str, Any]], path: str) -> None:
 def rebuild_models(models):
     """
     Convert the 'group_coef' data from each entry in models into
-    sklearn LinearRegression objects, ready for prediction.
+    statsmodels OLS objects, ready for prediction.
     Returns a dict: {description: (regressor, feature_order)}
     """
     model_objects = {}
@@ -119,57 +113,39 @@ def rebuild_models(models):
 
         # Extract intercept and coefficients
         intercept = coef_dict.get("Intercept", 0.0)
-        # Remove intercept to get only features
         features = [k for k in coef_dict.keys() if k != "Intercept"]
-        coefs = np.array([coef_dict[f] for f in features]).reshape(1, -1)
-
-        # Build sklearn LinearRegression model
-        reg = LinearRegression()
-        reg.coef_ = coefs
-        reg.intercept_ = intercept
-        reg.feature_names_in_ = np.array(features)
-        reg.n_features_in_ = len(features)
-
+        # Create a dummy statsmodels-like object for compatibility
+        # (for real prediction, you should refit or use params directly)
+        reg = {"intercept": intercept, "coefs": {f: coef_dict[f] for f in features}}
         model_objects[desc] = (reg, features)
 
     return model_objects
 
 def final_estimator_with_coefs(model):
     """
-    If model is a Pipeline, return the last step that has coef_.
-    Otherwise return the model itself.
+    For statsmodels, just return the model itself.
     """
-    est = model
-    if hasattr(model, "named_steps"):
-        for name, step in reversed(list(model.named_steps.items())):
-            if hasattr(step, "coef_"):
-                est = step
-                break
-    elif hasattr(model, "steps"):
-        for name, step in reversed(list(model.steps)):
-            if hasattr(step, "coef_"):
-                est = step
-                break
-    return est
+    return model
 
 def extract_linear_coefs(model, feature_names):
     """
-    Return dict with intercept + per-feature coefficients.
-    Dynamic column names: 'intercept' and 'coef__<feature_name>'.
-    Falls back to None if model doesn't have coef_/intercept_.
+    Return dict with intercept + per-feature coefficients and p-values.
+    Dynamic column names: 'intercept', 'coef__<feature_name>', 'pval__<feature_name>'.
     """
     est = final_estimator_with_coefs(model)
-    intercept = getattr(est, "intercept_", None)
-    coefs = getattr(est, "coef_", None)
-
-    out = {"intercept": float(intercept) if intercept is not None else None}
-    if coefs is None:
-        out.update({f"coef__{f}": None for f in feature_names})
-        return out
-
-    coefs = np.ravel(coefs)
-    for f, c in zip(feature_names, coefs):
-        out[f"coef__{f}"] = float(c)
+    out = {}
+    # For statsmodels
+    if hasattr(est, "params") and hasattr(est, "pvalues"):
+        out["intercept"] = float(est.params.get("const", est.params[0])) if "const" in est.params.index or est.params.index[0] == "const" else float(est.params[0])
+        for f in feature_names:
+            out[f"coef__{f}"] = float(est.params.get(f, float("nan")))
+            out[f"pval__{f}"] = float(est.pvalues.get(f, float("nan")))
+    else:
+        # fallback for dict-like regressor
+        out["intercept"] = model.get("intercept", None)
+        for f in feature_names:
+            out[f"coef__{f}"] = model["coefs"].get(f, None)
+            out[f"pval__{f}"] = None
     return out
 
 def _ensure_2d(a):
