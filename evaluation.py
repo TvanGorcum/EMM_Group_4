@@ -28,10 +28,12 @@ def evaluate_linear_model(
     y = df[y_col].values
     y_pred = model.predict(X)
 
+    #print(y_pred)
+
     return {
-        "r2": round(r2_score(y, y_pred), 3),
-        "mae": round(mean_absolute_error(y, y_pred), 3),
-        "mse": round(mean_squared_error(y, y_pred), 3)
+        "r2": round(r2_score(y, y_pred), 4),
+        "mae": round(mean_absolute_error(y, y_pred), 4),
+        "mse": round(mean_squared_error(y, y_pred), 4)
     }
 
 def _split_and(description: str):
