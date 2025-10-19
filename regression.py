@@ -93,110 +93,18 @@ def save_models_csv(models: List[Dict[str, Any]], path: str) -> None:
     df_long = models_to_long_dataframe(models)
     df_long.to_csv(path, index=False)
 
-def rebuild_models(models):
-    """
-    Convert the 'group_coef' data from each entry in models into
-    statsmodels OLS objects, ready for prediction.
-    Returns a dict: {description: (regressor, feature_order)}
-    """
-    model_objects = {}
-
-    for m in models:
-        desc = m["description"]
-        coef_dict = m["group_coef"]
-
-        # Extract intercept and coefficients
-        intercept = coef_dict.get("Intercept", 0.0)
-        features = [k for k in coef_dict.keys() if k != "Intercept"]
-        # Create a dummy statsmodels-like object for compatibility
-        # (for real prediction, you should refit or use params directly)
-        reg = {"intercept": intercept, "coefs": {f: coef_dict[f] for f in features}}
-        model_objects[desc] = (reg, features)
-
-    return model_objects
-
-def final_estimator_with_coefs(model):
-    """
-    For statsmodels, just return the model itself.
-    """
-    return model
-
 def extract_linear_coefs(model, feature_names):
     """
     Return dict with intercept + per-feature coefficients and p-values.
     Dynamic column names: 'intercept', 'coef__<feature_name>', 'pval__<feature_name>'.
     """
-    est = final_estimator_with_coefs(model)
     out = {}
-    # For statsmodels
-    if hasattr(est, "params") and hasattr(est, "pvalues"):
-        out["intercept"] = float(est.params.get("const", est.params[0])) if "const" in est.params.index or est.params.index[0] == "const" else float(est.params[0])
-        for f in feature_names:
-            out[f"coef__{f}"] = float(est.params.get(f, float("nan")))
-            out[f"pval__{f}"] = float(est.pvalues.get(f, float("nan")))
-    else:
-        # fallback for dict-like regressor
-        out["intercept"] = model.get("intercept", None)
-        for f in feature_names:
-            out[f"coef__{f}"] = model["coefs"].get(f, None)
-            out[f"pval__{f}"] = None
+    # Always use statsmodels
+    out["intercept"] = float(model.params.get("const", model.params[0]))
+    for f in feature_names:
+        out[f"coef__{f}"] = float(model.params.get(f, float("nan")))
+        out[f"pval__{f}"] = float(model.pvalues.get(f, float("nan")))
     return out
-
-def _ensure_2d(a):
-    a = np.asarray(a)
-    return a.reshape(-1, 1) if a.ndim == 1 else a
-
-def _design_matrix(df, cols, add_intercept=True):
-    X = df[cols].to_numpy()
-    names = cols[:]
-    if add_intercept:
-        X = np.column_stack([np.ones(X.shape[0]), X])
-        names = ["Intercept"] + names
-    return X, names
-
-def _ols_with_stats_matrix(X, y):
-    X = np.asarray(X)
-    y = np.asarray(y).reshape(-1)
-    n, p = X.shape
-    XTX_inv = np.linalg.pinv(X.T @ X)
-    beta = XTX_inv @ (X.T @ y)
-    resid = y - X @ beta
-    df_resid = n - p
-    s2 = float(resid.T @ resid) / df_resid
-    var_beta = s2 * XTX_inv
-    se = np.sqrt(np.clip(np.diag(var_beta), 0.0, np.inf))
-    with np.errstate(divide="ignore", invalid="ignore"):
-        tvals = np.where(se > 0, beta / se, np.nan)
-    try:
-        from scipy.stats import t as student_t
-        pvals = 2.0 * student_t.sf(np.abs(tvals), df_resid)
-    except Exception:
-        from math import erf, sqrt
-        Phi = lambda z: 0.5 * (1.0 + erf(z / sqrt(2.0)))
-        pvals = 2.0 * (1.0 - np.vectorize(Phi)(np.abs(tvals)))
-    rss = float(resid.T @ resid)
-    return {
-        "beta": beta,
-        "se": se,
-        "t": tvals,
-        "p": pvals,
-        "rss": rss,
-        "df_resid": df_resid,
-    }
-
-def partial_f_test(y, X_reduced, X_full):
-    fit_r = _ols_with_stats_matrix(X_reduced, y)
-    fit_f = _ols_with_stats_matrix(X_full, y)
-    rss_r, rss_f = fit_r["rss"], fit_f["rss"]
-    df_f = fit_f["df_resid"]
-    q = X_full.shape[1] - X_reduced.shape[1]
-    F = ((rss_r - rss_f) / q) / (rss_f / df_f)
-    try:
-        from scipy.stats import f as fdist
-        p = fdist.sf(F, q, df_f)
-    except Exception:
-        p = np.nan
-    return float(F), float(p), int(q), int(df_f)
 
 def add_subgroup_terms(df, description, base_cols, gamma_name=None):
     from evaluation import _description_to_mask

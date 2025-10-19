@@ -1,19 +1,15 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import numpy as np
+import statsmodels.api as sm
 
 # Imports from other files
 from regression import (
     train_linear_regression,
     collect_subgroup_models,
     save_models_csv,
-    rebuild_models,
-    final_estimator_with_coefs,
     extract_linear_coefs,
     add_subgroup_terms,
-    partial_f_test,
-    _design_matrix,
-    _ols_with_stats_matrix,
     _augment_with_kept,)
 from evaluation import evaluate_linear_model, get_rows_subgroup, ensure_dict
 
@@ -60,7 +56,7 @@ X_COLS = [
 # Define target variable and set regression parameters
 Y_COL = "CalculatedNumericResult"
 target_col = 'CalculatedNumericResult'
-complex_baseline_cols = X_COLS
+predictor_cols = X_COLS
 datafile = '../data_final.csv'
 
 # Define size of the test set
@@ -81,19 +77,18 @@ df = df.dropna(subset=['GPA', 'ECTS',])
 train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
 
 # Train the global linear regression on all train data
-complex_model = train_linear_regression(train_df, complex_baseline_cols)
+global_model = train_linear_regression(train_df, predictor_cols)
 
 # Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
 models = collect_subgroup_models(train_df, X_COLS, Y_COL, ATTR_CONFIG)
-models_usable = rebuild_models(models)
 #print(models)
 print(f"Collected {len(models)} subgroup models.")
 # Save to CSV (one row per subgroup-term)
-save_models_csv(models, "subgroup_linear_models1.csv")
-print(f"Exported {len(models)} subgroup models to subgroup_linear_models.csv")
+save_models_csv(models, "results/subgroup_linear_models.csv")
+print(f"Exported {len(models)} subgroup models to results/subgroup_linear_models.csv")
 
 # Evaluation metrics for baseline model
-metrics_complex = evaluate_linear_model(model = complex_model, df = test_df, X_cols= complex_baseline_cols , y_col= target_col)
+metrics_complex = evaluate_linear_model(model = global_model, df = test_df, X_cols= predictor_cols , y_col= target_col)
 print('Complex baseline evaluation metrics:', metrics_complex)
 
 # Build subgroup masks for both train and test
@@ -133,14 +128,14 @@ for model_dict in models:
 
     # Evaluate global model on this subgroup's test set (subgroup baseline)
     metrics_global_on_sub = evaluate_linear_model(
-        model=complex_model,
+        model=global_model,
         df=test_sub,
-        X_cols=complex_baseline_cols,
+        X_cols=predictor_cols,
         y_col=target_col,
     )
     row_global_on_sub = ensure_dict(metrics_global_on_sub)
     # Add coefficients and p-values for each coefficient
-    row_global_on_sub.update(extract_linear_coefs(complex_model, complex_baseline_cols))
+    row_global_on_sub.update(extract_linear_coefs(global_model, predictor_cols))
     row_global_on_sub.update({
         "model_type": "subgroup_global_baseline",
         "description": description,
@@ -153,16 +148,16 @@ for model_dict in models:
     # Retrain the same global architecture on subgroup train and evaluate on subgroup test
     # Only do this when we have at least one training row in the subgroup
     if n_train_sub > 0:
-        local_complex = train_linear_regression(train_sub, complex_baseline_cols)
+        local_complex = train_linear_regression(train_sub, predictor_cols)
         metrics_local_complex = evaluate_linear_model(
             model=local_complex,
             df=test_sub,
-            X_cols=complex_baseline_cols,
+            X_cols=predictor_cols,
             y_col=target_col,
         )
         row_local = ensure_dict(metrics_local_complex)
         # Add coefficients and p-values for each coefficient
-        row_local.update(extract_linear_coefs(local_complex, complex_baseline_cols))
+        row_local.update(extract_linear_coefs(local_complex, predictor_cols))
         row_local.update({
             "model_type": "subgroup_model",
             "description": description,
@@ -174,7 +169,7 @@ for model_dict in models:
 
 
 mc = ensure_dict(metrics_complex)
-mc.update(extract_linear_coefs(complex_model, complex_baseline_cols))
+mc.update(extract_linear_coefs(global_model, predictor_cols))
 mc.update({
     "model_type": "global",
     "description": "N/A",
@@ -186,7 +181,7 @@ results_rows.append(mc)
 
 # Save all results of the fitted subgroups
 results_df = pd.DataFrame.from_records(results_rows)
-results_df.to_csv("subgroup_model_results.csv", index=False)
+results_df.to_csv("results/subgroup_model_results.csv", index=False)
 
 #
 #
@@ -224,23 +219,38 @@ for m in models_sorted:
     reduced_cols = current_feature_cols[:]  # includes earlier kept gammas & interactions
     added_cols = [gamma_name] + inter_cols  # current candidate's new terms
     full_cols = reduced_cols + added_cols
+
+    # Skip if subgroup has no rows in train or test
     if test_aug[gamma_name].sum() == 0 or train_aug[gamma_name].sum() == 0:
         print(f"[Skip] '{desc}': subgroup has no rows in train or test.")
         continue
-    y_test = test_aug[target_col].to_numpy()
-    Xr_test, names_r = _design_matrix(test_aug, reduced_cols, add_intercept=True)
-    Xf_test, names_f = _design_matrix(test_aug, full_cols, add_intercept=True)
+
+    # Prepare design matrices with intercept
+    Xr_test = sm.add_constant(test_aug[reduced_cols], has_constant='add')
+    Xf_test = sm.add_constant(test_aug[full_cols], has_constant='add')
+    y_test = test_aug[target_col].values
+
+    # Fit reduced and full models on test set
+    model_reduced = sm.OLS(y_test, Xr_test).fit()
+    model_full = sm.OLS(y_test, Xf_test).fit()
+
+    # Partial F-test
+    rss_r = sum(model_reduced.resid ** 2)
+    rss_f = sum(model_full.resid ** 2)
+    df_f = model_full.df_resid
+    q = Xf_test.shape[1] - Xr_test.shape[1]
+    F = ((rss_r - rss_f) / q) / (rss_f / df_f)
     try:
-        F, pF, q, df_full = partial_f_test(y_test, Xr_test, Xf_test)
-    except Exception as e:
-        print(f"[Skip] '{desc}': F-test failed ({e}).")
-        continue
-    fit_full_test = _ols_with_stats_matrix(Xf_test, y_test)
-    added_term_indices = [names_f.index(c) for c in added_cols if c in names_f]
-    added_t = fit_full_test["t"][added_term_indices]
-    added_p = fit_full_test["p"][added_term_indices]
-    # new: pick significant terms only
-    pmap = {col: float(fit_full_test["p"][names_f.index(col)]) for col in added_cols}
+        from scipy.stats import f as fdist
+        pF = fdist.sf(F, q, df_f)
+    except Exception:
+        pF = np.nan
+
+    # t-tests for added terms
+    added_term_indices = [i for i, c in enumerate(Xf_test.columns) if c in added_cols]
+    added_t = model_full.tvalues.iloc[added_term_indices]
+    added_p = model_full.pvalues.iloc[added_term_indices]
+    pmap = {col: float(model_full.pvalues.get(col, np.nan)) for col in added_cols}
     significant_cols = [col for col in added_cols if pmap[col] < ALPHA_T]
 
     keep = (pF < ALPHA_F) and (len(significant_cols) > 0)
@@ -253,10 +263,8 @@ for m in models_sorted:
         "t_added": [float(t) if t == t else None for t in np.atleast_1d(added_t)],
         "p_added": [float(p) if p == p else None for p in np.atleast_1d(added_p)],
         "kept": bool(keep),
-        "kept_cols": significant_cols,  # <-- add this for transparency
+        "kept_cols": significant_cols,
     }
-
-    #print("TEST DECISION:", summary_bits)
 
     if keep:
         # only add the significant columns to the model
@@ -282,7 +290,7 @@ for (desc, gamma_name, inter_cols, summ) in KEPT_SUBGROUPS:
         "interaction_cols": "|".join(inter_cols),
         **{k: v for k, v in summ.items() if k not in ("description",)},
     })
-pd.DataFrame(kept_rows).to_csv("kept_subgroups_testing_phase.csv", index=False)
+pd.DataFrame(kept_rows).to_csv("results/kept_subgroups_testing_phase.csv", index=False)
 
 
 
