@@ -113,7 +113,6 @@ results_rows = []
 for model_dict in models:
     description = model_dict.get("description")
     cookD = model_dict.get("cookD", None)
-    n_found = model_dict.get("n", None)
 
     # Get subgroup data
     train_sub = subgroups_train.get(description, pd.DataFrame())
@@ -133,19 +132,7 @@ for model_dict in models:
         X_cols=predictor_cols,
         y_col=target_col,
     )
-    row_global_on_sub = ensure_dict(metrics_global_on_sub)
-    # Add coefficients and p-values for each coefficient
-    row_global_on_sub.update(extract_linear_coefs(global_model, predictor_cols))
-    row_global_on_sub.update({
-        "model_type": "subgroup_global_baseline",
-        "description": description,
-        "cookD": cookD,
-        "n_train": n_train_sub,
-        "n_test": n_test_sub,
-    })
-    results_rows.append(row_global_on_sub)
 
-    # Retrain the same global architecture on subgroup train and evaluate on subgroup test
     # Only do this when we have at least one training row in the subgroup
     if n_train_sub > 0:
         local_complex = train_linear_regression(train_sub, predictor_cols)
@@ -156,14 +143,18 @@ for model_dict in models:
             y_col=target_col,
         )
         row_local = ensure_dict(metrics_local_complex)
-        # Add coefficients and p-values for each coefficient
         row_local.update(extract_linear_coefs(local_complex, predictor_cols))
         row_local.update({
-            "model_type": "subgroup_model",
+            "model_type": "subgroup",
             "description": description,
-            "cookD": round(cookD, 5),
+            "cookD": cookD,
             "n_train": n_train_sub,
             "n_test": n_test_sub,
+            # Add baseline metrics
+            "baseline_r2": metrics_global_on_sub["r2"],
+            "baseline_mae": metrics_global_on_sub["mae"],
+            "baseline_mse": metrics_global_on_sub["mse"],
+            "baseline_mean_residual": metrics_global_on_sub["mean_residual"],
         })
         results_rows.append(row_local)
 
