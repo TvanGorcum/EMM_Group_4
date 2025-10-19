@@ -33,10 +33,10 @@ def evaluate_linear_model(
     #print(y_pred)
 
     return {
-        "r2": round(r2_score(y, y_pred), 4),
-        "mae": round(mean_absolute_error(y, y_pred), 4),
-        "mse": round(mean_squared_error(y, y_pred), 4),
-        "mean_residual": round(np.mean(y - y_pred), 4)
+        "r2": r2_score(y, y_pred),
+        "mae": mean_absolute_error(y, y_pred),
+        "mse": mean_squared_error(y, y_pred),
+        "mean_residual": np.mean(y - y_pred)
     }
 
 def _split_and(description: str):

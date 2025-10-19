@@ -5,23 +5,17 @@ from typing import List, Dict, Any, Tuple
 
 from subgroup_finder import emm_beam_search
 
-def train_basic_linear_regression(df, feature_cols=['ECTS', 'GPA'], target_col='CalculatedNumericResult'):
+def train_linear_regression(df, feature_cols, target_col='CalculatedNumericResult'):
+    """
+    Train a statsmodels OLS regression with intercept.
+    Returns the fitted model.
+    """
     X = df[feature_cols]
     X = sm.add_constant(X)  # adds intercept
     y = df[target_col]
     model = sm.OLS(y, X).fit()
-    # Print basic model coefficients
-    for col, coef in zip(['Intercept'] + feature_cols, model.params):
-        print(f"  {col}: {coef}")
-    return model
-
-def train_complex_linear_regression(df, feature_cols=['ECTS', 'GPA', 'course_repeater'], target_col='CalculatedNumericResult'):
-    X = df[feature_cols]
-    X = sm.add_constant(X)  # adds intercept
-    y = df[target_col]
-    model = sm.OLS(y, X).fit()
-    # Print complex model coefficients
-    for col, coef in zip(['Intercept'] + feature_cols, model.params):
+    # Print model coefficients
+    for col, coef in zip(X.columns, model.params):
         print(f"  {col}: {coef}")
     return model
 
@@ -229,3 +223,5 @@ def _augment_with_kept(df, kept, base_cols):
             if cname not in out.columns:
                 out[cname] = out[gamma_name] * out[x]
     return out
+
+

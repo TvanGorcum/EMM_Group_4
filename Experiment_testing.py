@@ -4,8 +4,7 @@ import numpy as np
 
 # Imports from other files
 from regression import (
-    train_basic_linear_regression,
-    train_complex_linear_regression,
+    train_linear_regression,
     collect_subgroup_models,
     save_models_csv,
     rebuild_models,
@@ -82,7 +81,7 @@ df = df.dropna(subset=['GPA', 'ECTS',])
 train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
 
 # Train the global linear regression on all train data
-complex_model = train_complex_linear_regression(train_df, complex_baseline_cols)
+complex_model = train_linear_regression(train_df, complex_baseline_cols)
 
 # Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
 models = collect_subgroup_models(train_df, X_COLS, Y_COL, ATTR_CONFIG)
@@ -143,9 +142,9 @@ for model_dict in models:
     # Add coefficients and p-values for each coefficient
     row_global_on_sub.update(extract_linear_coefs(complex_model, complex_baseline_cols))
     row_global_on_sub.update({
-        "model_type": "subgroup_baseline_global",
+        "model_type": "subgroup_global_baseline",
         "description": description,
-        "cookD": round(cookD, 5),
+        "cookD": cookD,
         "n_train": n_train_sub,
         "n_test": n_test_sub,
     })
@@ -154,7 +153,7 @@ for model_dict in models:
     # Retrain the same global architecture on subgroup train and evaluate on subgroup test
     # Only do this when we have at least one training row in the subgroup
     if n_train_sub > 0:
-        local_complex = train_complex_linear_regression(train_sub, complex_baseline_cols)
+        local_complex = train_linear_regression(train_sub, complex_baseline_cols)
         metrics_local_complex = evaluate_linear_model(
             model=local_complex,
             df=test_sub,
@@ -177,7 +176,7 @@ for model_dict in models:
 mc = ensure_dict(metrics_complex)
 mc.update(extract_linear_coefs(complex_model, complex_baseline_cols))
 mc.update({
-    "model_type": "global_baseline",
+    "model_type": "global",
     "description": "N/A",
     "cookD": None,
     "n_train": len(train_df),
@@ -210,7 +209,7 @@ KEPT_SUBGROUPS = []
 
 models_sorted = sorted(models, key=lambda m: m.get("cookD", -np.inf), reverse=True)
 current_feature_cols = BASE_GLOBAL_COLS[:]
-global_model = train_basic_linear_regression(train_df, feature_cols=current_feature_cols, target_col=target_col)
+global_model = train_linear_regression(train_df, feature_cols=current_feature_cols, target_col=target_col)
 
 for m in models_sorted:
     desc = m["description"]
@@ -264,7 +263,7 @@ for m in models_sorted:
         current_feature_cols = reduced_cols + significant_cols
 
         # fit the train model on exactly those columns
-        global_model = train_basic_linear_regression(
+        global_model = train_linear_regression(
             train_aug, feature_cols=current_feature_cols, target_col=target_col
         )
 
