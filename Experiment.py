@@ -2,6 +2,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 import numpy as np
 import statsmodels.api as sm
+from scipy.stats import wilcoxon
 
 # Imports from other files
 from regression import (
@@ -143,6 +144,10 @@ for model_dict in models:
             y_col=target_col,
         )
         row_local = ensure_dict(metrics_local_complex)
+        # Remove y_pred from the row before saving
+        if "y_pred" in row_local:
+            del row_local["y_pred"]
+
         row_local.update(extract_linear_coefs(local_complex, predictor_cols))
         row_local.update({
             "model_type": "subgroup",
@@ -156,10 +161,35 @@ for model_dict in models:
             "baseline_mse": metrics_global_on_sub["mse"],
             "baseline_mean_residual": metrics_global_on_sub["mean_residual"],
         })
+
+        # Calculate residuals for Wilcoxon
+        resid_global = test_sub[target_col].values - metrics_global_on_sub["y_pred"]
+        resid_local = test_sub[target_col].values - metrics_local_complex["y_pred"]
+
+        # Calculate absolute residuals
+        abs_resid_global = np.abs(resid_global)
+        abs_resid_local = np.abs(resid_local)
+
+        # Wilcoxon signed-rank test, alternative='less' means: is local < global?
+        if len(abs_resid_global) >= 2 and len(abs_resid_local) >= 2:
+            try:
+                wilcoxon_stat, wilcoxon_p = wilcoxon(abs_resid_local, abs_resid_global, alternative='less')
+            except Exception:
+                wilcoxon_stat, wilcoxon_p = None, None
+        else:
+            wilcoxon_stat, wilcoxon_p = None, None
+
+        row_local["wilcoxon_p"] = wilcoxon_p
+        row_local["wilcoxon_stat"] = wilcoxon_stat
+
         results_rows.append(row_local)
 
 
 mc = ensure_dict(metrics_complex)
+# Remove y_pred from the row before saving
+if "y_pred" in mc:
+    del mc["y_pred"]
+    
 mc.update(extract_linear_coefs(global_model, predictor_cols))
 mc.update({
     "model_type": "global",

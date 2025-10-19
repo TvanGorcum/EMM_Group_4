@@ -20,23 +20,20 @@ def ensure_dict(x):
         return ensure_dict(x[0])
     return dict(x)
 #We still need to settle and explain appropriate
-def evaluate_linear_model(
-    model,
-    df: pd.DataFrame,
-    X_cols: list,
-    y_col: str
-) -> dict:
+def evaluate_linear_model(model, df, X_cols, y_col):
     X = sm.add_constant(df[X_cols], has_constant='add')
     y = df[y_col].values
     y_pred = model.predict(X)
+    residuals = y - y_pred
+    mean_residual = float(np.mean(residuals))
 
-    #print(y_pred)
-
+    from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
     return {
-        "r2": r2_score(y, y_pred),
-        "mae": mean_absolute_error(y, y_pred),
-        "mse": mean_squared_error(y, y_pred),
-        "mean_residual": np.mean(y - y_pred)
+        "r2": round(r2_score(y, y_pred), 4),
+        "mae": round(mean_absolute_error(y, y_pred), 4),
+        "mse": round(mean_squared_error(y, y_pred), 4),
+        "mean_residual": round(mean_residual, 4),
+        "y_pred": y_pred  # <-- add this line
     }
 
 def _split_and(description: str):
