@@ -190,10 +190,16 @@ for model_dict in models:
                                               alternative="less")
                 if np.isnan(t_stat_g) or np.isnan(p_one_g):
                     t_stat_g, p_one_g = None, None
+                # Wilcoxon for local vs global
+                w_stat_g, w_p_g = wilcoxon(abs_resid_local[mask_g], abs_resid_global[mask_g], alternative="less")
+                if np.isnan(w_stat_g) or np.isnan(w_p_g):
+                    w_stat_g, w_p_g = None, None
             except Exception:
                 t_stat_g, p_one_g = None, None
+                w_stat_g, w_p_g = None, None
         else:
             t_stat_g, p_one_g = None, None
+            w_stat_g, w_p_g = None, None
 
         # Consider only pairs without NaNs for local vs mean
         mask_m = ~np.isnan(abs_resid_mean) & ~np.isnan(abs_resid_local)
@@ -202,10 +208,16 @@ for model_dict in models:
                 t_stat_m, p_one_m = ttest_rel(abs_resid_local[mask_m], abs_resid_mean[mask_m], alternative="less")
                 if np.isnan(t_stat_m) or np.isnan(p_one_m):
                     t_stat_m, p_one_m = None, None
+                # Wilcoxon for local vs mean
+                w_stat_m, w_p_m = wilcoxon(abs_resid_local[mask_m], abs_resid_mean[mask_m], alternative="less")
+                if np.isnan(w_stat_m) or np.isnan(w_p_m):
+                    w_stat_m, w_p_m = None, None
             except Exception:
                 t_stat_m, p_one_m = None, None
+                w_stat_m, w_p_m = None, None
         else:
             t_stat_m, p_one_m = None, None
+            w_stat_m, w_p_m = None, None
 
         # Considwer only pairs without NaNs for local vs mean global
         mask_mg = ~np.isnan(abs_resid_mean_global) & ~np.isnan(abs_resid_local)
@@ -214,21 +226,31 @@ for model_dict in models:
                 t_stat_mg, p_one_mg = ttest_rel(abs_resid_local[mask_mg], abs_resid_mean_global[mask_mg], alternative="less")
                 if np.isnan(t_stat_mg) or np.isnan(p_one_mg):
                     t_stat_mg, p_one_mg = None, None
+                # Wilcoxon for local vs mean global
+                w_stat_mg, w_p_mg = wilcoxon(abs_resid_local[mask_mg], abs_resid_mean_global[mask_mg], alternative="less")
+                if np.isnan(w_stat_mg) or np.isnan(w_p_mg):
+                    w_stat_mg, w_p_mg = None, None
             except Exception:
                 t_stat_mg, p_one_mg = None, None
+                w_stat_mg, w_p_mg = None, None
         else:
             t_stat_mg, p_one_mg = None, None
+            w_stat_mg, w_p_mg = None, None
 
         row_local["ttest_p"] = p_one_g
         row_local["ttest_stat"] = t_stat_g
+        row_local["wilcoxon_p"] = w_p_g
+        row_local["wilcoxon_stat"] = w_stat_g
 
-        # p/stat for local vs mean
         row_local["ttest_p_mean"] = p_one_m
         row_local["ttest_stat_mean"] = t_stat_m
+        row_local["wilcoxon_p_mean"] = w_p_m
+        row_local["wilcoxon_stat_mean"] = w_stat_m
 
-        # p/stat for global vs mean
         row_local["ttest_p_mean_global"] = p_one_mg
         row_local["ttest_stat_mean_global"] = t_stat_mg
+        row_local["wilcoxon_p_mean_global"] = w_p_mg
+        row_local["wilcoxon_stat_mean_global"] = w_stat_mg
 
         results_rows.append(row_local)
 
