@@ -163,35 +163,35 @@ for model_dict in models:
             "baseline_mean_residual": metrics_global_on_sub["mean_residual"],
         })
 
-        # Calculate residuals for paired t-test
+        # Calculate residuals for paired tests (keep predictions internal only)
         resid_global = test_sub[target_col].values - metrics_global_on_sub["y_pred"]
         resid_local = test_sub[target_col].values - metrics_local_complex["y_pred"]
 
-        # Calculate absolute residuals
-        abs_resid_global = np.abs(resid_global)
-        abs_resid_local = np.abs(resid_local)
+        # Use squared residuals (MSE per-sample) instead of absolute residuals (MAE)
+        sq_resid_global = resid_global ** 2
+        sq_resid_local = resid_local ** 2
 
         # Also compute a simple mean predictor (mean from the subgroup train set)
         mean_pred = train_sub[target_col].mean()
         resid_mean = test_sub[target_col].values - mean_pred
-        abs_resid_mean = np.abs(resid_mean)
+        sq_resid_mean = resid_mean ** 2
 
         # Also compute a simple mean predictor (mean for the full train set)
         mean_pred_global = train_df[target_col].mean()
         resid_mean_global = test_sub[target_col].values - mean_pred_global
-        abs_resid_mean_global = np.abs(resid_mean_global)
+        sq_resid_mean_global = resid_mean_global ** 2
 
-        # Consider only pairs without NaNs for local vs global
-        mask_g = ~np.isnan(abs_resid_global) & ~np.isnan(abs_resid_local)
+        # Consider only pairs without NaNs for local vs global (MSE)
+        mask_g = ~np.isnan(sq_resid_global) & ~np.isnan(sq_resid_local)
         if mask_g.sum() >= 2:
             try:
-                t_stat_g, p_one_g = ttest_rel(abs_resid_local[mask_g],
-                                              abs_resid_global[mask_g],
+                t_stat_g, p_one_g = ttest_rel(sq_resid_local[mask_g],
+                                              sq_resid_global[mask_g],
                                               alternative="less")
                 if np.isnan(t_stat_g) or np.isnan(p_one_g):
                     t_stat_g, p_one_g = None, None
-                # Wilcoxon for local vs global
-                w_stat_g, w_p_g = wilcoxon(abs_resid_local[mask_g], abs_resid_global[mask_g], alternative="less")
+                # Wilcoxon for local vs global (on squared errors)
+                w_stat_g, w_p_g = wilcoxon(sq_resid_local[mask_g], sq_resid_global[mask_g], alternative="less")
                 if np.isnan(w_stat_g) or np.isnan(w_p_g):
                     w_stat_g, w_p_g = None, None
             except Exception:
@@ -201,15 +201,15 @@ for model_dict in models:
             t_stat_g, p_one_g = None, None
             w_stat_g, w_p_g = None, None
 
-        # Consider only pairs without NaNs for local vs mean (subgroup mean)
-        mask_m = ~np.isnan(abs_resid_mean) & ~np.isnan(abs_resid_local)
+        # Consider only pairs without NaNs for local vs mean (subgroup mean) using MSE
+        mask_m = ~np.isnan(sq_resid_mean) & ~np.isnan(sq_resid_local)
         if mask_m.sum() >= 2:
             try:
-                t_stat_m, p_one_m = ttest_rel(abs_resid_local[mask_m], abs_resid_mean[mask_m], alternative="less")
+                t_stat_m, p_one_m = ttest_rel(sq_resid_local[mask_m], sq_resid_mean[mask_m], alternative="less")
                 if np.isnan(t_stat_m) or np.isnan(p_one_m):
                     t_stat_m, p_one_m = None, None
-                # Wilcoxon for local vs mean
-                w_stat_m, w_p_m = wilcoxon(abs_resid_local[mask_m], abs_resid_mean[mask_m], alternative="less")
+                # Wilcoxon for local vs subgroup-mean (squared errors)
+                w_stat_m, w_p_m = wilcoxon(sq_resid_local[mask_m], sq_resid_mean[mask_m], alternative="less")
                 if np.isnan(w_stat_m) or np.isnan(w_p_m):
                     w_stat_m, w_p_m = None, None
             except Exception:
@@ -219,17 +219,16 @@ for model_dict in models:
             t_stat_m, p_one_m = None, None
             w_stat_m, w_p_m = None, None
 
-        # Compare GLOBAL model (on subgroup test set) vs SUBGROUP MEAN predictor
-        # (i.e., resid_global vs residuals from predicting the subgroup train mean)
-        mask_mg = ~np.isnan(abs_resid_mean) & ~np.isnan(abs_resid_global)
+        # Compare GLOBAL model (on subgroup test set) vs SUBGROUP MEAN predictor using MSE
+        mask_mg = ~np.isnan(sq_resid_mean) & ~np.isnan(sq_resid_global)
         if mask_mg.sum() >= 2:
             try:
-                # paired t-test: is global-model error < subgroup-mean error?
-                t_stat_mg, p_one_mg = ttest_rel(abs_resid_global[mask_mg], abs_resid_mean[mask_mg], alternative="less")
+                # paired t-test: is global-model MSE < subgroup-mean MSE?
+                t_stat_mg, p_one_mg = ttest_rel(sq_resid_global[mask_mg], sq_resid_mean[mask_mg], alternative="less")
                 if np.isnan(t_stat_mg) or np.isnan(p_one_mg):
                     t_stat_mg, p_one_mg = None, None
-                # Wilcoxon for global vs subgroup-mean
-                w_stat_mg, w_p_mg = wilcoxon(abs_resid_global[mask_mg], abs_resid_mean[mask_mg], alternative="less")
+                # Wilcoxon for global vs subgroup-mean (squared errors)
+                w_stat_mg, w_p_mg = wilcoxon(sq_resid_global[mask_mg], sq_resid_mean[mask_mg], alternative="less")
                 if np.isnan(w_stat_mg) or np.isnan(w_p_mg):
                     w_stat_mg, w_p_mg = None, None
             except Exception:
