@@ -3,6 +3,7 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 import statsmodels.api as sm
 from scipy.stats import wilcoxon
+from scipy.stats import ttest_rel
 
 # Imports from other files
 from regression import (
@@ -162,7 +163,7 @@ for model_dict in models:
             "baseline_mean_residual": metrics_global_on_sub["mean_residual"],
         })
 
-        # Calculate residuals for Wilcoxon
+        # Calculate residuals for paired t-test
         resid_global = test_sub[target_col].values - metrics_global_on_sub["y_pred"]
         resid_local = test_sub[target_col].values - metrics_local_complex["y_pred"]
 
@@ -170,17 +171,64 @@ for model_dict in models:
         abs_resid_global = np.abs(resid_global)
         abs_resid_local = np.abs(resid_local)
 
-        # Wilcoxon signed-rank test, alternative='less' means: is local < global?
-        if len(abs_resid_global) >= 2 and len(abs_resid_local) >= 2:
-            try:
-                wilcoxon_stat, wilcoxon_p = wilcoxon(abs_resid_local, abs_resid_global, alternative='less')
-            except Exception:
-                wilcoxon_stat, wilcoxon_p = None, None
-        else:
-            wilcoxon_stat, wilcoxon_p = None, None
+        # Also compute a simple mean predictor (mean from the subgroup train set)
+        mean_pred = train_sub[target_col].mean()
+        resid_mean = test_sub[target_col].values - mean_pred
+        abs_resid_mean = np.abs(resid_mean)
 
-        row_local["wilcoxon_p"] = wilcoxon_p
-        row_local["wilcoxon_stat"] = wilcoxon_stat
+        # Also compute a simple mean predictor (mean for the full train set)
+        mean_pred_global = train_df[target_col].mean()
+        resid_mean_global = test_sub[target_col].values - mean_pred_global
+        abs_resid_mean_global = np.abs(resid_mean_global)
+
+        # Consider only pairs without NaNs for local vs global
+        mask_g = ~np.isnan(abs_resid_global) & ~np.isnan(abs_resid_local)
+        if mask_g.sum() >= 2:
+            try:
+                t_stat_g, p_one_g = ttest_rel(abs_resid_local[mask_g],
+                                              abs_resid_global[mask_g],
+                                              alternative="less")
+                if np.isnan(t_stat_g) or np.isnan(p_one_g):
+                    t_stat_g, p_one_g = None, None
+            except Exception:
+                t_stat_g, p_one_g = None, None
+        else:
+            t_stat_g, p_one_g = None, None
+
+        # Consider only pairs without NaNs for local vs mean
+        mask_m = ~np.isnan(abs_resid_mean) & ~np.isnan(abs_resid_local)
+        if mask_m.sum() >= 2:
+            try:
+                t_stat_m, p_one_m = ttest_rel(abs_resid_local[mask_m], abs_resid_mean[mask_m], alternative="less")
+                if np.isnan(t_stat_m) or np.isnan(p_one_m):
+                    t_stat_m, p_one_m = None, None
+            except Exception:
+                t_stat_m, p_one_m = None, None
+        else:
+            t_stat_m, p_one_m = None, None
+
+        # Considwer only pairs without NaNs for local vs mean global
+        mask_mg = ~np.isnan(abs_resid_mean_global) & ~np.isnan(abs_resid_local)
+        if mask_mg.sum() >= 2:
+            try:
+                t_stat_mg, p_one_mg = ttest_rel(abs_resid_local[mask_mg], abs_resid_mean_global[mask_mg], alternative="less")
+                if np.isnan(t_stat_mg) or np.isnan(p_one_mg):
+                    t_stat_mg, p_one_mg = None, None
+            except Exception:
+                t_stat_mg, p_one_mg = None, None
+        else:
+            t_stat_mg, p_one_mg = None, None
+
+        row_local["ttest_p"] = p_one_g
+        row_local["ttest_stat"] = t_stat_g
+
+        # p/stat for local vs mean
+        row_local["ttest_p_mean"] = p_one_m
+        row_local["ttest_stat_mean"] = t_stat_m
+
+        # p/stat for global vs mean
+        row_local["ttest_p_mean_global"] = p_one_mg
+        row_local["ttest_stat_mean_global"] = t_stat_mg
 
         results_rows.append(row_local)
 
