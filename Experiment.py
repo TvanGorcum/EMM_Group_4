@@ -62,7 +62,7 @@ predictor_cols = X_COLS
 datafile = '../data_final.csv'
 
 # Define size of the test set
-test_size = 0.4
+test_size = 0.5
 
 # Load the data and split it into train/test
 # This assumes the data is cleaned and there are no NaNs. 
@@ -201,7 +201,7 @@ for model_dict in models:
             t_stat_g, p_one_g = None, None
             w_stat_g, w_p_g = None, None
 
-        # Consider only pairs without NaNs for local vs mean
+        # Consider only pairs without NaNs for local vs mean (subgroup mean)
         mask_m = ~np.isnan(abs_resid_mean) & ~np.isnan(abs_resid_local)
         if mask_m.sum() >= 2:
             try:
@@ -219,15 +219,17 @@ for model_dict in models:
             t_stat_m, p_one_m = None, None
             w_stat_m, w_p_m = None, None
 
-        # Considwer only pairs without NaNs for local vs mean global
-        mask_mg = ~np.isnan(abs_resid_mean_global) & ~np.isnan(abs_resid_local)
+        # Compare GLOBAL model (on subgroup test set) vs SUBGROUP MEAN predictor
+        # (i.e., resid_global vs residuals from predicting the subgroup train mean)
+        mask_mg = ~np.isnan(abs_resid_mean) & ~np.isnan(abs_resid_global)
         if mask_mg.sum() >= 2:
             try:
-                t_stat_mg, p_one_mg = ttest_rel(abs_resid_local[mask_mg], abs_resid_mean_global[mask_mg], alternative="less")
+                # paired t-test: is global-model error < subgroup-mean error?
+                t_stat_mg, p_one_mg = ttest_rel(abs_resid_global[mask_mg], abs_resid_mean[mask_mg], alternative="less")
                 if np.isnan(t_stat_mg) or np.isnan(p_one_mg):
                     t_stat_mg, p_one_mg = None, None
-                # Wilcoxon for local vs mean global
-                w_stat_mg, w_p_mg = wilcoxon(abs_resid_local[mask_mg], abs_resid_mean_global[mask_mg], alternative="less")
+                # Wilcoxon for global vs subgroup-mean
+                w_stat_mg, w_p_mg = wilcoxon(abs_resid_global[mask_mg], abs_resid_mean[mask_mg], alternative="less")
                 if np.isnan(w_stat_mg) or np.isnan(w_p_mg):
                     w_stat_mg, w_p_mg = None, None
             except Exception:
