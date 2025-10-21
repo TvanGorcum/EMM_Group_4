@@ -26,9 +26,9 @@ def collect_subgroup_models(
     attr_config,
     *,
     beam_width: int = 30,
-    max_depth: int = 4,
+    max_depth: int = 3,
     min_support: int = 70,
-    top_S: int = 50,
+    top_S: int = 100,
 ) -> List[Dict[str, Any]]:
     results = emm_beam_search(
         df,
