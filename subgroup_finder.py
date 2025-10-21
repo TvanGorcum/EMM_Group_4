@@ -69,7 +69,7 @@ def cooks_distance_emm(X, y, mask, add_intercept=True, use_pinv=True):
     }
 
 
-def bin_numeric_series(s, n_bins=12):
+def bin_numeric_series(s, n_bins=4):
     """
     Given a numeric series, return a list of bins with constant interval width.
     """
