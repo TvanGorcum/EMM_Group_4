@@ -100,7 +100,7 @@ def extract_linear_coefs(model, feature_names):
     """
     out = {}
     # Always use statsmodels
-    out["intercept"] = float(model.params.get("const", model.params[0]))
+    out["intercept"] = float(model.params.get("const", model.params.iloc[0]))
     for f in feature_names:
         out[f"coef__{f}"] = float(model.params.get(f, float("nan")))
         out[f"pval__{f}"] = float(model.pvalues.get(f, float("nan")))
