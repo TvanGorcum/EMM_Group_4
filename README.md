@@ -1,6 +1,6 @@
 # Validating Subgroup-Aware Student Performance Models with False Discovery Analysis
 
-This repository contains code supports our Paper "Validating Subgroup-Aware Student Performance Models with False Discovery Analysis".
+This repository contains code supporting our Paper "Validating Subgroup-Aware Student Performance Models with False Discovery Analysis".
 
 ## Overview 
 This code conducts Beam Search Subgroup Discovery on University Learn Management Sytems dataset (containing student learning behaviour and performance) and detects false group discovered with the use of linear regression.
