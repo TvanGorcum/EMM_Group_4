@@ -39,23 +39,23 @@ ATTR_CONFIG = {
     "croho": "categorical",
     "origin": "categorical",
     "course_repeater": "categorical",
-    "collegeyear": "categorical",
-    "course_code": "categorical",
+    #"collegeyear": "categorical",
+    #"course_code": "categorical",
     "type_vooropleiding" : "categorical",
     "double_major": "categorical",
 }
 
 # Define features used for regression
 X_COLS = [
-    "active_minutes",
-    #"nr_distinct_files_viewed",
+    #"active_minutes",
+    "nr_distinct_files_viewed",
     "total_course_activities",
-    #"nightly_activities",
+    "nightly_activities",
     "distinct_days",
     "logged_in_weekly",
     "nr_files_viewed",
-    #"nr_slides_viewed",
-    "nr_practice_exams_viewed",
+    "nr_slides_viewed",
+    #"nr_practice_exams_viewed",
     #"bool_practice_exams_viewed"
 ]
 
@@ -218,9 +218,9 @@ def main():
     # Define target variable and set regression parameters
     target_col = 'CalculatedNumericResult'
     predictor_cols = X_COLS
-    datafile = 'data_calculus.csv'
+    datafile = 'data_calculus_filtered.csv'
     # Define size of the test set
-    test_size = 0.5
+    test_size = 0.3
 
     # Load the data and split it into train/test
     # This assumes the data is cleaned and there are no NaNs. 
