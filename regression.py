@@ -5,19 +5,22 @@ from typing import List, Dict, Any, Tuple
 
 from subgroup_finder import emm_beam_search
 
-def train_linear_regression(df, feature_cols, target_col='CalculatedNumericResult'):
+def train_linear_regression(df, feature_cols, target_col):
     """
     Train a statsmodels OLS regression with intercept.
     Returns the fitted model.
     """
+
     X = df[feature_cols]
-    X = sm.add_constant(X)  # adds intercept
+    X = sm.add_constant(X, has_constant='add')  # adds intercept
+    #print(X.columns)
     y = df[target_col]
     model = sm.OLS(y, X).fit()
+    #print(len(X), len(model.params))
     # Print model coefficients
-    for col, coef in zip(X.columns, model.params):
-        print(f"  {col}: {coef}")
-    return model
+    # for col, coef in zip(X.columns, model.params):
+    #      print(f"  {col}: {coef}")
+    return X, model
 
 def collect_subgroup_models(
     df: pd.DataFrame,
@@ -45,6 +48,7 @@ def collect_subgroup_models(
     for desc, D, mask, tbl_group, tbl_global in results:
         models.append({
             "description": desc,
+            "indices": [int(i) for i in list(np.where(np.array(mask.copy()))[0])],
             "n": int(mask.sum()),
             "cookD": float(D),
             # subgroup stats as dicts keyed by term name ("Intercept", feature names)
@@ -68,6 +72,7 @@ def models_to_long_dataframe(models: List[Dict[str, Any]]) -> pd.DataFrame:
         desc = m["description"]
         n = m["n"]
         cookD = m["cookD"]
+        idx = m['indices']
 
         # terms from subgroup table (same index as global)
         for term, coef in m["group_coef"].items():
@@ -75,6 +80,7 @@ def models_to_long_dataframe(models: List[Dict[str, Any]]) -> pd.DataFrame:
                 "subgroup": desc,
                 "n": n,
                 "cookD": cookD,
+                "indices": idx,
                 "term": term,
                 "coef_group": coef,
                 "se_group": m["group_se"][term],
