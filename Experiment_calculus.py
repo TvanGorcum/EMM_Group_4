@@ -218,7 +218,7 @@ def main():
     # Define target variable and set regression parameters
     target_col = 'CalculatedNumericResult'
     predictor_cols = X_COLS
-    datafile = 'data_calculus_filtered.csv'
+    datafile = 'data/Calc_filtered.csv'
     # Define size of the test set
     test_size = 0.3
 
