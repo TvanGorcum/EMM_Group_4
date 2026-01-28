@@ -227,7 +227,7 @@ def main():
     # Define target variable and set regression parameters
     target_col = 'CalculatedNumericResult'
     predictor_cols = X_COLS
-    datafile = 'FDA.csv'
+    datafile = 'data/FDA.csv'
     # Define size of the test set
     test_size = 0.3
 

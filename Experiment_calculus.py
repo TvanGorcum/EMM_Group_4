@@ -107,25 +107,6 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
                 X_cols=predictor_cols,
                 y_col=target_col,
             )
-            row_local = ensure_dict(metrics_local_complex)
-            # Remove y_pred from the row before saving
-            if "y_pred" in row_local:
-                del row_local["y_pred"]
-
-            row_local.update(extract_linear_coefs(local_complex, predictor_cols))
-            row_local.update({
-                "model_type": "subgroup",
-                "description": description,
-                "cookD": cookD,
-                "n_train": n_train_sub,
-                "n_test": n_test_sub,
-                # Add baseline metrics
-                "baseline_r2": metrics_global_on_sub["r2"],
-                "baseline_mae": metrics_global_on_sub["mae"],
-                "baseline_mse": metrics_global_on_sub["mse"],
-                "baseline_mean_residual": metrics_global_on_sub["mean_residual"],
-            })
-
             # Calculate residuals for paired tests (keep predictions internal only)
             resid_global = test_sub[target_col].values - metrics_global_on_sub["y_pred"]
             resid_local = test_sub[target_col].values - metrics_local_complex["y_pred"]
@@ -138,6 +119,38 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
             mean_pred = train_sub[target_col].mean()
             resid_mean = test_sub[target_col].values - mean_pred
             sq_resid_mean = resid_mean ** 2
+            
+            # Calculate mean predictor metrics
+            mean_pred_mae = float(np.mean(np.abs(resid_mean)))
+            mean_pred_mse = float(np.mean(sq_resid_mean))
+            ss_res_mean = np.sum(sq_resid_mean)
+            ss_tot_sub = np.sum((test_sub[target_col].values - test_sub[target_col].mean()) ** 2)
+            mean_pred_r2 = float(1 - (ss_res_mean / ss_tot_sub)) if ss_tot_sub > 0 else 0.0
+            mean_pred_mean_residual = float(np.mean(resid_mean))
+
+            row_local = ensure_dict(metrics_local_complex)
+            # Remove y_pred from the row before saving
+            if "y_pred" in row_local:
+                del row_local["y_pred"]
+
+            row_local.update(extract_linear_coefs(local_complex, predictor_cols))
+            row_local.update({
+                "model_type": "subgroup",
+                "description": description,
+                "cookD": cookD,
+                "n_train": n_train_sub,
+                "n_test": n_test_sub,
+                # Global model metrics on this subgroup
+                "global_baseline_r2": metrics_global_on_sub["r2"],
+                "global_baseline_mae": metrics_global_on_sub["mae"],
+                "global_baseline_mse": metrics_global_on_sub["mse"],
+                "global_baseline_mean_residual": metrics_global_on_sub["mean_residual"],
+                # Mean predictor metrics for this subgroup
+                "mean_baseline_r2": mean_pred_r2,
+                "mean_baseline_mae": mean_pred_mae,
+                "mean_baseline_mse": mean_pred_mse,
+                "mean_baseline_mean_residual": mean_pred_mean_residual,
+            })
 
             # Consider only pairs without NaNs for local vs global (MSE)
             mask_g = ~np.isnan(sq_resid_global) & ~np.isnan(sq_resid_local)
@@ -259,6 +272,16 @@ def main():
 
     approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows)
 
+    # Calculate baseline (mean predictor) metrics for global model on full test set
+    mean_pred_global = train_df[target_col].mean()
+    resid_mean_global = test_df[target_col].values - mean_pred_global
+    baseline_mse_global = float(np.mean(resid_mean_global ** 2))
+    baseline_mae_global = float(np.mean(np.abs(resid_mean_global)))
+    ss_res_baseline = np.sum(resid_mean_global ** 2)
+    ss_tot = np.sum((test_df[target_col].values - test_df[target_col].mean()) ** 2)
+    baseline_r2_global = float(1 - (ss_res_baseline / ss_tot)) if ss_tot > 0 else 0.0
+    baseline_mean_residual_global = float(np.mean(resid_mean_global))
+
     mc = ensure_dict(metrics_complex)
     # Remove y_pred from the row before saving
     if "y_pred" in mc:
@@ -271,6 +294,11 @@ def main():
         "cookD": None,
         "n_train": len(train_df),
         "n_test": len(test_df),
+        # Add baseline (mean predictor) metrics
+        "mean_baseline_r2": baseline_r2_global,
+        "mean_baseline_mae": baseline_mae_global,
+        "mean_baseline_mse": baseline_mse_global,
+        "mean_baseline_mean_residual": baseline_mean_residual_global,
     })
     results_rows.append(mc)
 
