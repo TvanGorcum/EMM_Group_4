@@ -62,7 +62,7 @@ X_COLS = [
 # Define target variable 
 Y_COL = "CalculatedNumericResult"
 
-def approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows):
+def approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows, coefs_dict):
     #
     #
     #
@@ -100,13 +100,23 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
 
         # Only do this when we have at least one training row in the subgroup
         if n_train_sub > 0:
-            _, local_complex = train_linear_regression(train_sub, predictor_cols, 'CalculatedNumericResult')
+            X, local_complex = train_linear_regression(train_sub, predictor_cols, 'CalculatedNumericResult')
             metrics_local_complex = evaluate_linear_model(
                 model=local_complex,
                 df=test_sub,
                 X_cols=predictor_cols,
                 y_col=target_col,
+                
             )
+            
+            for col, coef in zip(X.columns, local_complex.params):
+                coefs_dict['subgroup'].append('#'+str(i))
+                coefs_dict['term'].append(col)
+                coefs_dict['coef'].append(coef)
+            
+            coefs_dict['p'] += list(local_complex.pvalues)
+            coefs_dict['significant'] += ['yes' if i <= 0.10 else 'no' for i in local_complex.pvalues ]
+
             # Calculate residuals for paired tests (keep predictions internal only)
             resid_global = test_sub[target_col].values - metrics_global_on_sub["y_pred"]
             resid_local = test_sub[target_col].values - metrics_local_complex["y_pred"]
@@ -225,6 +235,8 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
             row_local["wilcoxon_stat_mean_global"] = w_stat_mg
 
             results_rows.append(row_local)
+    
+    return coefs_dict
 
 
 def main():
@@ -234,6 +246,7 @@ def main():
     datafile = 'data/Calc_filtered.csv'
     # Define size of the test set
     test_size = 0.2
+    coefs_dict = {'subgroup': [], 'term': [], 'coef': [], 'p': [], 'significant': [] }
 
     # Load the data and split it into train/test
     # This assumes the data is cleaned and there are no NaNs. 
@@ -250,7 +263,15 @@ def main():
     train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
 
     # Train the global linear regression on all train data
-    _, global_model = train_linear_regression(train_df, predictor_cols, 'CalculatedNumericResult')
+    X, global_model = train_linear_regression(train_df, predictor_cols, 'CalculatedNumericResult')
+
+    for col, coef in zip(X.columns, global_model.params):
+        coefs_dict['subgroup'].append('Ω')
+        coefs_dict['term'].append(col)
+        coefs_dict['coef'].append(coef)
+
+    coefs_dict['p'] += list(global_model.pvalues)
+    coefs_dict['significant'] += ['yes' if i <= 0.10 else 'no' for i in global_model.pvalues ]
 
     # Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
     models = collect_subgroup_models(train_df, X_COLS, Y_COL, ATTR_CONFIG)
@@ -270,7 +291,7 @@ def main():
 
     results_rows = []
 
-    approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows)
+    coefs_dict = approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows)
 
     # Calculate baseline (mean predictor) metrics for global model on full test set
     mean_pred_global = train_df[target_col].mean()
@@ -306,7 +327,9 @@ def main():
     results_df = pd.DataFrame.from_records(results_rows)
     results_df.to_csv("results/subgroup_model_results.csv", index=False)
 
-
+    coefs_df = pd.DataFrame.from_dict(coefs_dict)
+    coefs_df.to_csv(f"results/coefs_calculus.csv", index=False)
+    
 if __name__ == "__main__":
     main()
 
