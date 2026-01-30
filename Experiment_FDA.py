@@ -71,7 +71,7 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
     #
 
     # Per-subgroup: evaluate discovered model and baseline
-    i=0
+    i=1
     for model_dict in models:
         description = model_dict.get("description")
         cookD = model_dict.get("cookD", None)
