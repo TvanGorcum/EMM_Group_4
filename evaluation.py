@@ -19,10 +19,16 @@ def ensure_dict(x):
     if isinstance(x, tuple) and len(x) >= 1:
         return ensure_dict(x[0])
     return dict(x)
+
 #We still need to settle and explain appropriate
 def evaluate_linear_model(model, df, X_cols, y_col):
     X = sm.add_constant(df[X_cols], has_constant='add')
     y = df[y_col].values
+
+    # print(len(X), len(model.params))
+    # for col, coef in zip(X.columns, model.params):
+    #      print(f"  {col}: {coef}")
+
     y_pred = model.predict(X)
     residuals = y - y_pred
     mean_residual = float(np.mean(residuals))

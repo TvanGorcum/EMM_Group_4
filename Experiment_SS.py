@@ -1,0 +1,346 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import numpy as np
+import statsmodels.api as sm
+from scipy.stats import wilcoxon
+from scipy.stats import ttest_rel
+
+# Imports from other files
+from regression import (
+    train_linear_regression,
+    collect_subgroup_models,
+    save_models_csv,
+    extract_linear_coefs,
+    add_subgroup_terms,
+    _augment_with_kept,)
+from evaluation import evaluate_linear_model, get_rows_subgroup, ensure_dict
+
+
+TARGETS = [
+    'G1',
+    'G2',
+    'absences',
+    'activities',
+    'paid',
+    'famsup',
+    'schoolsup',
+    'studytime'
+]
+
+DESCRIPTORS = [ 
+    'school',
+    'sex',
+    'age',
+    'address',
+    'famsize',
+    'Pstatus',
+    'Medu',
+    'Fedu',
+    'Mjob',
+    'Fjob',
+    'reason',
+    'guardian',
+    'traveltime',
+    'failures',
+    'nursery',
+    'higher',
+    'internet',
+    'romantic',
+    'famrel',
+    'freetime',
+    'goout',
+    'Dalc',
+    'Walc',
+    'health'
+ ]
+
+
+# Define which columns are numeric #None here bc all are in bins
+NUMERIC_COLS = [
+    'age',
+    'Medu',
+    'Fedu',
+    'traveltime',
+    'studytime',
+    'failures',
+    'famrel',
+    'freetime',
+    'goout',
+    'Dalc',
+    'Walc',
+    'health',
+    'absences',
+    'G1',
+    'G2',
+    'G3'
+]
+
+ATTR_CONFIG = {
+    key: 'numeric' if key in NUMERIC_COLS else 'categorical' for key in DESCRIPTORS
+}
+
+
+# Define target variable 
+Y_COL = "G3"
+
+# Define features used for regression
+X_COLS = [
+       x for x in TARGETS if x != Y_COL
+]
+
+
+def approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows, coefs_dict):
+    #
+    #
+    #
+    # Start of approach 1: evaluate each subgroup model individually
+    #
+    # For each subgroup that was found, compare the residuals on the subgroup test set from the global model
+    # with the residuals on the subgroup test set after retraining the same model architecture only on the subgroup train set.
+    #
+    #
+    #
+    i = 0
+    # Per-subgroup: evaluate discovered model and baseline
+    for model_dict in models:
+        description = model_dict.get("description")
+        cookD = model_dict.get("cookD", None)
+        indices = model_dict.get("indices")
+
+        # Get subgroup data
+        train_sub = subgroups_train.get(description, pd.DataFrame())
+        test_sub  = subgroups_test.get(description, pd.DataFrame())
+
+        n_train_sub = len(train_sub)
+        n_test_sub  = len(test_sub)
+
+        # If there's no test data for this subgroup we can't evaluate — skip
+        if n_test_sub == 0:
+            continue
+
+        # Evaluate global model on this subgroup's test set (subgroup baseline)
+        metrics_global_on_sub = evaluate_linear_model(
+            model=global_model,
+            df=test_sub,
+            X_cols=predictor_cols,
+            y_col=target_col,
+        )
+
+        # Only do this when we have at least one training row in the subgroup
+        if n_train_sub > 0:
+            X, local_complex = train_linear_regression(train_sub, feature_cols=predictor_cols, target_col=target_col)
+
+            for col, coef in zip(X.columns, local_complex.params):
+                coefs_dict['subgroup'].append('#'+str(i))
+                coefs_dict['term'].append(col)
+                coefs_dict['coef'].append(coef)
+            
+            coefs_dict['p'] += list(local_complex.pvalues)
+            coefs_dict['significant'] += ['yes' if i <= 0.10 else 'no' for i in local_complex.pvalues ]
+
+            metrics_local_complex = evaluate_linear_model(
+                model=local_complex,
+                df=test_sub,
+                X_cols=predictor_cols,
+                y_col=target_col,
+            )
+            row_local = ensure_dict(metrics_local_complex)
+            # Remove y_pred from the row before saving
+            if "y_pred" in row_local:
+                del row_local["y_pred"]
+
+            row_local.update(extract_linear_coefs(local_complex, predictor_cols))
+            row_local.update({
+                "model_type": "subgroup",
+                "description": description,
+                "cookD": cookD,
+                "indices": indices,
+                "n_train": n_train_sub,
+                "n_test": n_test_sub,
+                # Add baseline metrics
+                "baseline_r2": metrics_global_on_sub["r2"],
+                "baseline_mae": metrics_global_on_sub["mae"],
+                "baseline_mse": metrics_global_on_sub["mse"],
+                "baseline_mean_residual": metrics_global_on_sub["mean_residual"],
+            })
+
+            # Calculate residuals for paired tests (keep predictions internal only)
+            resid_global = test_sub[target_col].values - metrics_global_on_sub["y_pred"]
+            resid_local = test_sub[target_col].values - metrics_local_complex["y_pred"]
+
+            # Use squared residuals (MSE per-sample) instead of absolute residuals (MAE)
+            sq_resid_global = resid_global ** 2
+            sq_resid_local = resid_local ** 2
+
+            # Also compute a simple mean predictor (mean from the subgroup train set)
+            mean_pred = train_sub[target_col].mean()
+            resid_mean = test_sub[target_col].values - mean_pred
+            sq_resid_mean = resid_mean ** 2
+
+            # Consider only pairs without NaNs for local vs global (MSE)
+            mask_g = ~np.isnan(sq_resid_global) & ~np.isnan(sq_resid_local)
+            if mask_g.sum() >= 2:
+                try:
+                    t_stat_g, p_one_g = ttest_rel(sq_resid_local[mask_g],
+                                                sq_resid_global[mask_g],
+                                                alternative="less")
+                    if np.isnan(t_stat_g) or np.isnan(p_one_g):
+                        t_stat_g, p_one_g = None, None
+                    # Wilcoxon for local vs global (on squared errors)
+                    w_stat_g, w_p_g = wilcoxon(sq_resid_local[mask_g], sq_resid_global[mask_g], alternative="less")
+                    if np.isnan(w_stat_g) or np.isnan(w_p_g):
+                        w_stat_g, w_p_g = None, None
+                except Exception:
+                    t_stat_g, p_one_g = None, None
+                    w_stat_g, w_p_g = None, None
+            else:
+                t_stat_g, p_one_g = None, None
+                w_stat_g, w_p_g = None, None
+
+            # Consider only pairs without NaNs for local vs mean (subgroup mean) using MSE
+            mask_m = ~np.isnan(sq_resid_mean) & ~np.isnan(sq_resid_local)
+            if mask_m.sum() >= 2:
+                try:
+                    t_stat_m, p_one_m = ttest_rel(sq_resid_local[mask_m], sq_resid_mean[mask_m], alternative="less")
+                    if np.isnan(t_stat_m) or np.isnan(p_one_m):
+                        t_stat_m, p_one_m = None, None
+                    # Wilcoxon for local vs subgroup-mean (squared errors)
+                    w_stat_m, w_p_m = wilcoxon(sq_resid_local[mask_m], sq_resid_mean[mask_m], alternative="less")
+                    if np.isnan(w_stat_m) or np.isnan(w_p_m):
+                        w_stat_m, w_p_m = None, None
+                except Exception:
+                    t_stat_m, p_one_m = None, None
+                    w_stat_m, w_p_m = None, None
+            else:
+                t_stat_m, p_one_m = None, None
+                w_stat_m, w_p_m = None, None
+
+            # Compare GLOBAL model (on subgroup test set) vs SUBGROUP MEAN predictor using MSE
+            mask_mg = ~np.isnan(sq_resid_mean) & ~np.isnan(sq_resid_global)
+            if mask_mg.sum() >= 2:
+                try:
+                    # paired t-test: is global-model MSE < subgroup-mean MSE?
+                    t_stat_mg, p_one_mg = ttest_rel(sq_resid_global[mask_mg], sq_resid_mean[mask_mg], alternative="less")
+                    if np.isnan(t_stat_mg) or np.isnan(p_one_mg):
+                        t_stat_mg, p_one_mg = None, None
+                    # Wilcoxon for global vs subgroup-mean (squared errors)
+                    w_stat_mg, w_p_mg = wilcoxon(sq_resid_global[mask_mg], sq_resid_mean[mask_mg], alternative="less")
+                    if np.isnan(w_stat_mg) or np.isnan(w_p_mg):
+                        w_stat_mg, w_p_mg = None, None
+                except Exception:
+                    t_stat_mg, p_one_mg = None, None
+                    w_stat_mg, w_p_mg = None, None
+            else:
+                t_stat_mg, p_one_mg = None, None
+                w_stat_mg, w_p_mg = None, None
+
+            row_local["ttest_p"] = p_one_g
+            row_local["ttest_stat"] = t_stat_g
+            row_local["wilcoxon_p"] = w_p_g
+            row_local["wilcoxon_stat"] = w_stat_g
+
+            row_local["ttest_p_mean"] = p_one_m
+            row_local["ttest_stat_mean"] = t_stat_m
+            row_local["wilcoxon_p_mean"] = w_p_m
+            row_local["wilcoxon_stat_mean"] = w_stat_m
+
+            row_local["ttest_p_mean_global"] = p_one_mg
+            row_local["ttest_stat_mean_global"] = t_stat_mg
+            row_local["wilcoxon_p_mean_global"] = w_p_mg
+            row_local["wilcoxon_stat_mean_global"] = w_stat_mg
+
+            results_rows.append(row_local)
+
+            i += 1
+    
+    return coefs_dict
+
+
+def main(course=None, test_size=0.3, min_size=15):
+    # Define target variable and set regression parameters
+    target_col = Y_COL
+    predictor_cols = X_COLS
+    datafile = 'Data/SecondarySchool/'+str(course)+'_cleaned.csv'
+    # Define size of the test set
+    test_size = test_size
+
+    coefs_dict = {'subgroup': [], 'term': [], 'coef': [], 'p': [], 'significant': [] }
+    
+    # Load the data and split it into train/test
+    # This assumes the data is cleaned and there are no NaNs. 
+
+    df = pd.read_csv(datafile)
+    df[X_COLS] = df[X_COLS].astype(float)
+    df[Y_COL] = df[Y_COL].astype(float)
+    df = df.copy()
+    for c in NUMERIC_COLS:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Drop rows with NaNs in numeric columns and specifically in GPA and ECTS
+    # No NaNs in the data
+    # df = df.dropna(subset=NUMERIC_COLS).reset_index(drop=True)
+    # df = df.dropna(subset=['GPA', 'ECTS',])
+
+    train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
+
+    # Train the global linear regression on all train data
+    X, global_model = train_linear_regression(train_df, feature_cols=X_COLS, target_col=target_col)
+
+    for col, coef in zip(X.columns, global_model.params):
+        coefs_dict['subgroup'].append('Ω')
+        coefs_dict['term'].append(col)
+        coefs_dict['coef'].append(coef)
+
+    coefs_dict['p'] += list(global_model.pvalues)
+    coefs_dict['significant'] += ['yes' if i <= 0.10 else 'no' for i in global_model.pvalues ]
+
+    # Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
+    models = collect_subgroup_models(train_df, X_COLS, Y_COL, ATTR_CONFIG, beam_width = 30,
+    max_depth = 3,
+    min_support = min_size,
+    top_S = 50)
+    #print(models)
+    print(f"Collected {len(models)} subgroup models.")
+    # Save to CSV (one row per subgroup-term)
+    save_models_csv(models, f"Results/subgroup_{course}_linear8020.csv")
+    print(f"Exported {len(models)} subgroup models to Results/subgroup_{course}_linear8020.csv")
+
+    # Evaluation metrics for baseline model
+    metrics_complex = evaluate_linear_model(model = global_model, df = test_df, X_cols= X_COLS , y_col= target_col)
+    print('Complex baseline evaluation metrics:', metrics_complex)
+
+    # Build subgroup masks for both train and test
+    subgroups_train = get_rows_subgroup(models, train_df)
+    subgroups_test  = get_rows_subgroup(models, test_df)
+
+    results_rows = []
+
+    coefs_dict = approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows, coefs_dict)
+
+    mc = ensure_dict(metrics_complex)
+    # Remove y_pred from the row before saving
+    if "y_pred" in mc:
+        del mc["y_pred"]
+        
+    mc.update(extract_linear_coefs(global_model, predictor_cols))
+    mc.update({
+        "model_type": "global",
+        "description": "N/A",
+        "cookD": None,
+        "n_train": len(train_df),
+        "n_test": len(test_df),
+    })
+    results_rows.append(mc)
+
+    # Save all results of the fitted subgroups
+    results_df = pd.DataFrame.from_records(results_rows)
+    results_df.to_csv(f"results/subgroup_ss_{course}_results8020.csv", index=False)
+
+
+    coefs_df = pd.DataFrame.from_dict(coefs_dict)
+    coefs_df.to_csv(f"results/coefs_{course}8020.csv", index=False)
+
+
+if __name__ == "__main__":
+    main()
+
