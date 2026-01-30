@@ -233,7 +233,7 @@ def main():
     predictor_cols = X_COLS
     datafile = 'data/Calc_filtered.csv'
     # Define size of the test set
-    test_size = 0.3
+    test_size = 0.2
 
     # Load the data and split it into train/test
     # This assumes the data is cleaned and there are no NaNs. 
