@@ -96,7 +96,7 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
 
         # Only do this when we have at least one training row in the subgroup
         if n_train_sub > 0:
-            local_complex = train_linear_regression(train_sub, predictor_cols)
+            _, local_complex = train_linear_regression(train_sub, predictor_cols, 'CalculatedNumericResult')
             metrics_local_complex = evaluate_linear_model(
                 model=local_complex,
                 df=test_sub,
@@ -229,7 +229,7 @@ def main():
     predictor_cols = X_COLS
     datafile = 'data/FDA.csv'
     # Define size of the test set
-    test_size = 0.3
+    test_size = 0.2
 
     # Load the data and split it into train/test
     # This assumes the data is cleaned and there are no NaNs. 
@@ -246,7 +246,7 @@ def main():
     train_df, test_df = train_test_split(df, test_size=test_size, random_state=4)
 
     # Train the global linear regression on all train data
-    global_model = train_linear_regression(train_df, predictor_cols)
+    _, global_model = train_linear_regression(train_df, predictor_cols, 'CalculatedNumericResult')
 
     # Run the linear regression models found in subgroup_finder.py(using the different slopes for different folks paper)
     models = collect_subgroup_models(train_df, X_COLS, Y_COL, ATTR_CONFIG)
