@@ -144,24 +144,51 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
                 X_cols=predictor_cols,
                 y_col=target_col,
             )
+
+                        # Calculate residuals for paired tests (keep predictions internal only)
+            resid_global = test_sub[target_col].values - metrics_global_on_sub["y_pred"]
+            resid_local = test_sub[target_col].values - metrics_local_complex["y_pred"]
+
+            # Use squared residuals (MSE per-sample) instead of absolute residuals (MAE)
+            sq_resid_global = resid_global ** 2
+            sq_resid_local = resid_local ** 2
+
+            # Also compute a simple mean predictor (mean from the subgroup train set)
+            mean_pred = train_sub[target_col].mean()
+            resid_mean = test_sub[target_col].values - mean_pred
+            sq_resid_mean = resid_mean ** 2
+            
+            # Calculate mean predictor metrics
+            mean_pred_mae = float(np.mean(np.abs(resid_mean)))
+            mean_pred_mse = float(np.mean(sq_resid_mean))
+            ss_res_mean = np.sum(sq_resid_mean)
+            ss_tot_sub = np.sum((test_sub[target_col].values - test_sub[target_col].mean()) ** 2)
+            mean_pred_r2 = float(1 - (ss_res_mean / ss_tot_sub)) if ss_tot_sub > 0 else 0.0
+            mean_pred_mean_residual = float(np.mean(resid_mean))
+            
             row_local = ensure_dict(metrics_local_complex)
             # Remove y_pred from the row before saving
             if "y_pred" in row_local:
                 del row_local["y_pred"]
+
 
             row_local.update(extract_linear_coefs(local_complex, predictor_cols))
             row_local.update({
                 "model_type": "subgroup",
                 "description": description,
                 "cookD": cookD,
-                "indices": indices,
                 "n_train": n_train_sub,
                 "n_test": n_test_sub,
-                # Add baseline metrics
-                "baseline_r2": metrics_global_on_sub["r2"],
-                "baseline_mae": metrics_global_on_sub["mae"],
-                "baseline_mse": metrics_global_on_sub["mse"],
-                "baseline_mean_residual": metrics_global_on_sub["mean_residual"],
+                # Global model metrics on this subgroup
+                "global_baseline_r2": metrics_global_on_sub["r2"],
+                "global_baseline_mae": metrics_global_on_sub["mae"],
+                "global_baseline_mse": metrics_global_on_sub["mse"],
+                "global_baseline_mean_residual": metrics_global_on_sub["mean_residual"],
+                # Mean predictor metrics for this subgroup
+                "mean_baseline_r2": mean_pred_r2,
+                "mean_baseline_mae": mean_pred_mae,
+                "mean_baseline_mse": mean_pred_mse,
+                "mean_baseline_mean_residual": mean_pred_mean_residual,
             })
 
             # Calculate residuals for paired tests (keep predictions internal only)
