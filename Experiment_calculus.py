@@ -75,6 +75,8 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
     #
 
     # Per-subgroup: evaluate discovered model and baseline
+
+    i=0
     for model_dict in models:
         description = model_dict.get("description")
         cookD = model_dict.get("cookD", None)
@@ -235,6 +237,7 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
             row_local["wilcoxon_stat_mean_global"] = w_stat_mg
 
             results_rows.append(row_local)
+            i+=1
     
     return coefs_dict
 
@@ -278,7 +281,7 @@ def main():
     #print(models)
     print(f"Collected {len(models)} subgroup models.")
     # Save to CSV (one row per subgroup-term)
-    save_models_csv(models, "results/subgroup_linear_models.csv")
+    save_models_csv(models, "results/subgroup_linear_models_calculus.csv")
     print(f"Exported {len(models)} subgroup models to results/subgroup_linear_models.csv")
 
     # Evaluation metrics for baseline model
@@ -291,7 +294,7 @@ def main():
 
     results_rows = []
 
-    coefs_dict = approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows)
+    coefs_dict = approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows, coefs_dict)
 
     # Calculate baseline (mean predictor) metrics for global model on full test set
     mean_pred_global = train_df[target_col].mean()
@@ -325,7 +328,7 @@ def main():
 
     # Save all results of the fitted subgroups
     results_df = pd.DataFrame.from_records(results_rows)
-    results_df.to_csv("results/subgroup_model_results.csv", index=False)
+    results_df.to_csv("results/subgroup_model_results_calculus.csv", index=False)
 
     coefs_df = pd.DataFrame.from_dict(coefs_dict)
     coefs_df.to_csv(f"results/coefs_calculus.csv", index=False)
