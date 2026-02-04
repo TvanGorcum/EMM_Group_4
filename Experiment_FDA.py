@@ -38,6 +38,8 @@ ATTR_CONFIG = {
     "GPA": "numeric",
     "origin": "categorical",
     "course_repeater": "categorical",
+    "type_vooropleiding" : "categorical",
+    "double_major": "categorical"
 }
 
 # Define features used for regression
