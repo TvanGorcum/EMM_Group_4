@@ -329,8 +329,7 @@ def main(course=None, test_size=0.3, min_size=15):
     #print(models)
     print(f"Collected {len(models)} subgroup models.")
     # Save to CSV (one row per subgroup-term)
-    save_models_csv(models, f"Results/subgroup_{course}_linear8020.csv")
-    print(f"Exported {len(models)} subgroup models to Results/subgroup_{course}_linear8020.csv")
+    save_models_csv(models, f"Results/subgroup_linear_{course}.csv")
 
     # Evaluation metrics for baseline model
     metrics_complex = evaluate_linear_model(model = global_model, df = test_df, X_cols= X_COLS , y_col= target_col)
@@ -344,6 +343,16 @@ def main(course=None, test_size=0.3, min_size=15):
 
     coefs_dict = approach_one(models, subgroups_train, subgroups_test, global_model, train_df, test_df, predictor_cols, target_col, results_rows, coefs_dict)
 
+    # Calculate baseline (mean predictor) metrics for global model on full test set
+    mean_pred_global = train_df[target_col].mean()
+    resid_mean_global = test_df[target_col].values - mean_pred_global
+    baseline_mse_global = float(np.mean(resid_mean_global ** 2))
+    baseline_mae_global = float(np.mean(np.abs(resid_mean_global)))
+    ss_res_baseline = np.sum(resid_mean_global ** 2)
+    ss_tot = np.sum((test_df[target_col].values - test_df[target_col].mean()) ** 2)
+    baseline_r2_global = float(1 - (ss_res_baseline / ss_tot)) if ss_tot > 0 else 0.0
+    baseline_mean_residual_global = float(np.mean(resid_mean_global))
+
     mc = ensure_dict(metrics_complex)
     # Remove y_pred from the row before saving
     if "y_pred" in mc:
@@ -356,16 +365,21 @@ def main(course=None, test_size=0.3, min_size=15):
         "cookD": None,
         "n_train": len(train_df),
         "n_test": len(test_df),
+        # Add baseline (mean predictor) metrics
+        "mean_baseline_r2": baseline_r2_global,
+        "mean_baseline_mae": baseline_mae_global,
+        "mean_baseline_mse": baseline_mse_global,
+        "mean_baseline_mean_residual": baseline_mean_residual_global,
     })
     results_rows.append(mc)
 
     # Save all results of the fitted subgroups
     results_df = pd.DataFrame.from_records(results_rows)
-    results_df.to_csv(f"results/subgroup_ss_{course}_results8020.csv", index=False)
+    results_df.to_csv(f"results/subgroup_results_{course}.csv", index=False)
 
 
     coefs_df = pd.DataFrame.from_dict(coefs_dict)
-    coefs_df.to_csv(f"results/coefs_{course}8020.csv", index=False)
+    coefs_df.to_csv(f"results/coefs_{course}.csv", index=False)
 
 
 if __name__ == "__main__":
