@@ -100,7 +100,7 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
     #
     #
     #
-    i = 1
+    i = 0
     # Per-subgroup: evaluate discovered model and baseline
     for model_dict in models:
         description = model_dict.get("description")
