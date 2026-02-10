@@ -5,6 +5,4 @@
 *.iml
 *.pyc
 fix.*
-kept_subgroups_testing_phase.csv
-subgroup_linear_models.csv
-subgroup_model_results.csv
+
