@@ -256,7 +256,7 @@ def approach_one(models, subgroups_train, subgroups_test, global_model, train_df
     return coefs_dict
 
 
-def main(test_size, min_size):
+def main(test_size=0.3, min_size=70):
     # Define target variable and set regression parameters
     target_col = 'CalculatedNumericResult'
     predictor_cols = X_COLS

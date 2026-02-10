@@ -11,22 +11,23 @@ To conduct our tests we use both private and public datasets. The public dataset
 ## File structure
 ```
 EMM_Group_4/
+├── Data/                             # Folder with public dataset
+├── data/                             # Folder with private dataset
+├── figures/                          # Generated figures (created at run-time)
+├── results/                          # Generated outputs (created at run-time)
 ├── dfd_ss.py                         # Entry point for distribution-free discovery for portuguese and mathematics public data.
 ├── Experiment_calculus.py            # Main entry point for calculus private data: split data, train global model, mine/evaluate subgroups, write results
 ├── Experiment_FDA.py                 # Main entry point for data analytics private data: split data, train global model, mine/evaluate subgroups, write results
 ├── Experiment_SS.py                  # Main entry point for portuguese and mathematics public data: split data, train global model, mine/evaluate subgroups, write results
 ├── evaluation.py                     # Metric computation, subgroup mask parsing, helpers (ensure_dict, get_rows_subgroup)
-├── regression.py                     # OLS training, extracting coefs/p-values, subgroup term construction, CSV export
-├── subgroup_finder.py                # EMM beam search, atomic conditions, numeric binning, Cook’s distance + OLS stats
-├── inspect_private_calc.ipynb              # Python notebook with the final results for the private calculus data
-├── inspect_private_fda.ipynb               # Python notebook with the final results for the private FDA data
-├── inspect_private_mat.ipynb               # Python notebook with the final results for the public mathematics data
-├── inspect_private_por.ipynb               # Python notebook with the final results for the public portuguese data
-├── requirements.txt                  # Pinned Python package versions
+├── inspect_private_calc.ipynb        # Python notebook with the final results for the private calculus data
+├── inspect_private_fda.ipynb         # Python notebook with the final results for the private FDA data
+├── inspect_private_mat.ipynb         # Python notebook with the final results for the public mathematics data
+├── inspect_private_por.ipynb         # Python notebook with the final results for the public portuguese data
 ├── README.md                         # Project overview and usage instructions
-├── results/                          # Generated outputs (created at run-time)
-├── figures/                          # Generated figures (created at run-time)
-└── Data/                             # Preprocessed data (path for storing the data)
+├── regression.py                     # OLS training, extracting coefs/p-values, subgroup term construction, CSV export
+├── requirements.txt                  # Pinned Python package versions
+└── subgroup_finder.py                # EMM beam search, atomic conditions, numeric binning, Cook’s distance + OLS stats
 ```
 
 
